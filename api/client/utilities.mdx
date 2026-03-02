@@ -1,0 +1,248 @@
+---
+title: Utility Functions
+description: Helper functions for path resolution, dataset access, and debugging
+---
+
+This page documents utility functions exported from `syft_client` that help with common tasks like path resolution, dataset file access, and generating bug reports.
+
+## resolve_path()
+
+Converts `syft://` URLs to absolute filesystem paths.
+
+```python
+from syft_client import resolve_path
+```
+
+### Parameters
+
+<ParamField path="path" type="str | Path" required>
+  Path to resolve (must start with `syft://`)
+</ParamField>
+
+<ParamField path="syftbox_folder" type="str | Path" default="None">
+  SyftBox folder location. If not provided, uses `SYFTBOX_FOLDER` environment variable.
+</ParamField>
+
+### Returns
+
+<ResponseField name="result" type="Path">
+  Resolved pathlib.Path object pointing to the actual filesystem location
+</ResponseField>
+
+### Raises
+
+- `ValueError`: If `syftbox_folder` not provided and `SYFTBOX_FOLDER` env var not set
+- `ValueError`: If path doesn't start with `syft://`
+
+### Usage
+
+```python
+import syft_client as sc
+from pathlib import Path
+
+# Using environment variable
+import os
+os.environ['SYFTBOX_FOLDER'] = '/home/user/SyftBox'
+resolved = sc.resolve_path("syft://datasites/alice/data")
+# Returns: PosixPath('/home/user/SyftBox/datasites/alice/data')
+
+# Passing folder directly
+resolved = sc.resolve_path(
+    "syft://apps/myapp",
+    syftbox_folder="/home/user/SyftBox"
+)
+# Returns: PosixPath('/home/user/SyftBox/apps/myapp')
+
+# Works with Path objects too
+from pathlib import Path
+path = Path("syft://datasites/bob/results")
+resolved = sc.resolve_path(path)
+```
+
+<Note>
+This function is useful when working with syft:// URLs in job code or when you need to access files programmatically.
+</Note>
+
+## resolve_dataset_file_path()
+
+Resolves a dataset name to its file path, automatically choosing between mock and private data based on context.
+
+```python
+from syft_client import resolve_dataset_file_path
+```
+
+### Parameters
+
+<ParamField path="dataset_name" type="str" required>
+  Name of the dataset to resolve
+</ParamField>
+
+<ParamField path="syftbox_folder" type="str | Path" default="None">
+  SyftBox folder location. If not provided, inferred from `client` or `SYFTBOX_FOLDER` env var.
+</ParamField>
+
+<ParamField path="owner_email" type="str" default="None">
+  Email of the dataset owner. If not provided, inferred from `client` or `SYFTBOX_EMAIL` env var.
+</ParamField>
+
+<ParamField path="client" type="SyftboxManager" default="None">
+  SyftboxManager instance to use for resolution. Provides syftbox_folder and can resolve owner_email.
+</ParamField>
+
+### Returns
+
+<ResponseField name="result" type="Path">
+  Path to the dataset files directory (mock or private based on context)
+</ResponseField>
+
+### Behavior
+
+The function automatically determines whether to return mock or private data:
+
+- **Inside a job** (`SYFT_IS_IN_JOB=true`): Returns private data path
+- **Outside a job**: Returns mock data path
+
+### Usage
+
+```python
+import syft_client as sc
+
+# In job code - automatically uses private data
+data_path = sc.resolve_dataset_file_path("customer_data")
+# Returns: Path to private data
+
+# Outside job - uses mock data
+data_path = sc.resolve_dataset_file_path("customer_data")
+# Returns: Path to mock data
+
+# With explicit owner
+data_path = sc.resolve_dataset_file_path(
+    "medical_records",
+    owner_email="doctor@hospital.org"
+)
+
+# With client instance
+client = sc.login_ds(email="scientist@example.com")
+data_path = sc.resolve_dataset_file_path(
+    "patient_data",
+    client=client
+)
+```
+
+### Example in Job Code
+
+```python
+# In a job submitted to a data owner
+import syft_client as sc
+import pandas as pd
+
+# This automatically resolves to private data when running in a job
+data_path = sc.resolve_dataset_file_path("sales_data")
+df = pd.read_csv(data_path / "sales.csv")
+
+print(f"Loaded {len(df)} rows from private data")
+```
+
+<Info>
+This is the recommended way to access datasets in job code. It abstracts away the distinction between mock and private data.
+</Info>
+
+## bug_report()
+
+Generates a comprehensive environment snapshot for bug reports and debugging.
+
+```python
+from syft_client import bug_report
+```
+
+### Parameters
+
+<ParamField path="as_dict" type="bool" default="False">
+  If True, return the report as a dictionary instead of printing it
+</ParamField>
+
+<ParamField path="redact_paths" type="bool" default="False">
+  If True, redact user-specific paths in the output for privacy
+</ParamField>
+
+### Returns
+
+<ResponseField name="result" type="dict | None">
+  If `as_dict=True`, returns a dictionary containing all collected info. Otherwise prints the report and returns None.
+</ResponseField>
+
+### Collected Information
+
+The bug report includes:
+
+- **Syft Client version** and package info
+- **Runtime environment** (Jupyter, Colab, standard Python)
+- **OS information** (platform, version, kernel)
+- **Hardware details** (CPU, RAM, GPU if available)
+- **Python environment** (version, virtual env type)
+- **Package managers** (pip, uv, conda versions)
+- **Installed packages** (syft packages and dependencies)
+- **Environment interpretation** (detected runtime type)
+
+<Warning>
+The output is safe to share publicly - no tokens, secrets, or credentials are included.
+</Warning>
+
+### Usage
+
+```python
+import syft_client as sc
+
+# Print full report to console
+sc.bug_report()
+
+# Get report as dictionary for programmatic access
+report = sc.bug_report(as_dict=True)
+print(f"Python version: {report['python_env']['python_version']}")
+print(f"Syft Client version: {report['syft_client']['syft_client_version']}")
+print(f"Runtime: {report['interpretation']['detected_environment']}")
+
+# Redact paths for privacy when sharing
+sc.bug_report(redact_paths=True)
+```
+
+### Example Output
+
+```
+Collecting environment information... (this may take a few seconds)
+
+=== Syft Client Information ===
+syft_client version: 0.1.101
+Package location: /home/user/.venv/lib/python3.11/site-packages
+
+=== Runtime Environment ===
+Detected environment: Jupyter Notebook
+Jupyter detected: Yes
+Google Colab detected: No
+
+=== Operating System ===
+Platform: Linux
+OS Version: Ubuntu 22.04.3 LTS
+Kernel: 5.15.0-91-generic
+
+=== Python Environment ===
+Python version: 3.11.7
+Virtual environment: venv
+...
+```
+
+### When to Use
+
+Use `bug_report()` when:
+
+- Reporting issues on GitHub
+- Seeking help in discussions
+- Debugging environment-specific problems
+- Verifying your setup after installation
+- Comparing environments across systems
+
+## See Also
+
+- [Login Functions](/api/client/login) - Authentication and client creation
+- [SyftboxManager](/api/client/syftbox-manager) - Main client interface
+- [Data Scientist Guide](/guides/data-scientist) - Using datasets in jobs

@@ -59,7 +59,8 @@
             "pages": [
               "api/client/login",
               "api/client/syftbox-manager",
-              "api/client/sync"
+              "api/client/sync",
+              "api/client/utilities"
             ]
           },
           {
