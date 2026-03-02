@@ -1,0 +1,125 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Syft Client",
+  "projectDescription": "Python SDK for peer-to-peer data science and AI via trusted channels like Google Workspace",
+  "theme": "palm",
+  "primaryColor": "#7C3AED",
+  "lightColor": "#A78BFA",
+  "darkColor": "#5B21B6",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/peer-to-peer",
+              "concepts/datasites",
+              "concepts/permissions"
+            ]
+          },
+          {
+            "group": "User Guides",
+            "pages": [
+              "guides/data-scientist",
+              "guides/data-owner",
+              "guides/authentication",
+              "guides/notebooks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Client",
+            "pages": [
+              "api/client/login",
+              "api/client/syftbox-manager",
+              "api/client/sync"
+            ]
+          },
+          {
+            "group": "Jobs",
+            "pages": [
+              "api/jobs/job-client",
+              "api/jobs/job-runner",
+              "api/jobs/job"
+            ]
+          },
+          {
+            "group": "Datasets",
+            "pages": [
+              "api/datasets/dataset-manager",
+              "api/datasets/dataset",
+              "api/datasets/config"
+            ]
+          },
+          {
+            "group": "Permissions",
+            "pages": [
+              "api/permissions/acl-service",
+              "api/permissions/ruleset",
+              "api/permissions/access-control"
+            ]
+          },
+          {
+            "group": "Background Services",
+            "pages": [
+              "api/background/notifications",
+              "api/background/auto-approval",
+              "api/background/monitoring"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Packages",
+        "groups": [
+          {
+            "group": "Sub-packages",
+            "pages": [
+              "packages/syft-job",
+              "packages/syft-datasets",
+              "packages/syft-permissions",
+              "packages/syft-perm",
+              "packages/syft-bg",
+              "packages/syft-notebook-ui"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Peer-to-peer data science over trusted channels",
+    "Job submission and execution with auto-approval",
+    "Dataset sharing with permission controls",
+    "Google Drive and Microsoft 365 integration",
+    "Background notification and monitoring services",
+    "Jupyter and Colab notebook support"
+  ],
+  "publicApiSurface": [
+    "login()",
+    "login_ds()",
+    "login_do()",
+    "SyftboxManager",
+    "JobClient",
+    "SyftJobRunner",
+    "SyftDatasetManager",
+    "ACLService",
+    "RuleSet",
+    "download_from_gdrive()"
+  ]
+}
