@@ -1,0 +1,418 @@
+---
+title: Job & JobsList
+description: Job information objects and collections for managing SyftBox jobs
+---
+
+## Overview
+
+The `Job` module provides classes for representing individual jobs (`JobInfo`) and collections of jobs (`JobsList`) with rich display and management capabilities.
+
+## JobInfo Class
+
+Represents information about a single job with approval and management capabilities.
+
+### Constructor
+
+```python
+from syft_job.job import JobInfo
+from pathlib import Path
+
+job = JobInfo(
+    name="Data Analysis",
+    datasite_owner_email="owner@example.com",
+    status="inbox",
+    submitted_by="analyst@example.com",
+    location=Path("/path/to/job"),
+    client=client,
+    current_user_email="owner@example.com",
+    submitted_at="2026-03-02T10:30:00+00:00"
+)
+```
+
+<ParamField path="name" type="str" required>
+  Name of the job
+</ParamField>
+
+<ParamField path="datasite_owner_email" type="str" required>
+  Email of the datasite owner where the job resides
+</ParamField>
+
+<ParamField path="status" type="str" required>
+  Job status: "inbox", "approved", or "done"
+</ParamField>
+
+<ParamField path="submitted_by" type="str" required>
+  Email of the user who submitted the job
+</ParamField>
+
+<ParamField path="location" type="Path" required>
+  Path to the job directory
+</ParamField>
+
+<ParamField path="client" type="JobClient" required>
+  JobClient instance for job operations
+</ParamField>
+
+<ParamField path="current_user_email" type="str" required>
+  Email of the current user
+</ParamField>
+
+<ParamField path="submitted_at" type="str">
+  ISO format timestamp of when the job was submitted
+</ParamField>
+
+### Methods
+
+#### approve()
+
+Approve a job by creating an approved marker file.
+
+```python
+job.approve()
+# Output: ✅ Job 'Data Analysis' approved successfully!
+```
+
+<Info>
+  Only the datasite owner can approve jobs in their own folder.
+</Info>
+
+**Raises:**
+- `ValueError` - If job is not in inbox status
+- `PermissionError` - If current user is not the datasite owner
+
+#### accept_by_depositing_result()
+
+Accept a job by depositing the result file or folder and marking it as done.
+
+```python
+result_path = job.accept_by_depositing_result(
+    path="/path/to/result.csv"
+)
+
+print(result_path)
+# Output: /path/to/job/outputs/result.csv
+```
+
+<ParamField path="path" type="str" required>
+  Path to the result file or folder to deposit
+</ParamField>
+
+<ResponseField name="return" type="Path">
+  Path to the deposited result in the outputs directory
+</ResponseField>
+
+**Raises:**
+- `ValueError` - If job is not in inbox or approved status
+- `FileNotFoundError` - If result path doesn't exist
+
+**Example with folder:**
+
+```python
+# Deposit an entire results folder
+result_path = job.accept_by_depositing_result(
+    path="/path/to/results_folder"
+)
+# Result folder copied to: /path/to/job/outputs/results_folder/
+```
+
+#### rerun()
+
+Rerun a completed job by removing logs, outputs, and done marker.
+
+```python
+job.rerun()
+# Output: 🔄 Job 'Data Analysis' prepared for rerun! 
+#         Removed: logs directory, outputs directory, done marker file
+```
+
+**Raises:**
+- `ValueError` - If job is not in done status
+
+After calling `rerun()`, the job status changes to "approved" and can be executed again.
+
+#### share_outputs()
+
+Grant read access to the outputs directory for specific users.
+
+```python
+job.share_outputs([
+    "analyst@example.com",
+    "reviewer@example.com"
+])
+```
+
+<ParamField path="users" type="List[str]" required>
+  List of user emails to grant access to
+</ParamField>
+
+#### share_logs()
+
+Grant read access to log files (stdout, stderr, returncode) for specific users.
+
+```python
+job.share_logs([
+    "analyst@example.com",
+    "reviewer@example.com"
+])
+```
+
+<ParamField path="users" type="List[str]" required>
+  List of user emails to grant access to
+</ParamField>
+
+### Properties
+
+#### output_paths
+
+Get list of all file paths in the outputs directory.
+
+```python
+if job.status == "done":
+    for output in job.output_paths:
+        print(f"Output: {output.name}")
+```
+
+<ResponseField name="return" type="List[Path]">
+  List of Path objects for all files/directories in outputs folder. Empty list if job is not done or outputs directory doesn't exist.
+</ResponseField>
+
+#### files
+
+Get list of all files in the job folder.
+
+```python
+for file in job.files:
+    print(f"File: {file.name}")
+```
+
+<ResponseField name="return" type="List[Path]">
+  List of Path objects for all files and directories in the job folder
+</ResponseField>
+
+#### stdout
+
+Get a viewer for the stdout content of completed jobs.
+
+```python
+# View stdout content
+print(job.stdout)
+
+# In Jupyter, displays formatted output
+job.stdout
+```
+
+<ResponseField name="return" type="StdoutViewer">
+  Viewer object that displays stdout content with rich formatting
+</ResponseField>
+
+#### stderr
+
+Get a viewer for the stderr content of completed jobs.
+
+```python
+# View stderr content
+print(job.stderr)
+
+# In Jupyter, displays formatted output
+job.stderr
+```
+
+<ResponseField name="return" type="StderrViewer">
+  Viewer object that displays stderr content with rich formatting
+</ResponseField>
+
+### Display
+
+#### String Representation
+
+```python
+print(job)
+# Output: 📥 Data Analysis (inbox) -> owner@example.com
+```
+
+Status emojis:
+- 📥 inbox
+- ✅ approved
+- 🎉 done
+
+#### HTML Representation (Jupyter)
+
+In Jupyter notebooks, jobs display with rich formatting:
+
+```python
+job  # Displays formatted table with job details
+```
+
+## JobsList Class
+
+A list-like container for JobInfo objects with nice display and indexing.
+
+### Constructor
+
+```python
+from syft_job.job import JobsList
+
+jobs_list = JobsList(
+    jobs=[job1, job2, job3],
+    root_email="owner@example.com"
+)
+```
+
+<ParamField path="jobs" type="List[JobInfo]" required>
+  List of JobInfo objects
+</ParamField>
+
+<ParamField path="root_email" type="str" required>
+  Email of the root user (for display grouping)
+</ParamField>
+
+### Indexing
+
+#### By Position
+
+```python
+# Get first job
+first_job = jobs[0]
+
+# Get last job
+last_job = jobs[-1]
+```
+
+#### By Name
+
+```python
+# Get job by name
+analysis_job = jobs["Data Analysis"]
+```
+
+**Raises:**
+- `ValueError` - If job with name not found
+- `TypeError` - If index is not int or str
+
+### Iteration
+
+```python
+# Iterate over all jobs
+for job in jobs:
+    print(f"{job.name}: {job.status}")
+
+# Filter jobs
+inbox_jobs = [job for job in jobs if job.status == "inbox"]
+
+# Count jobs by status
+from collections import Counter
+status_counts = Counter(job.status for job in jobs)
+print(status_counts)
+# Output: Counter({'done': 5, 'inbox': 3, 'approved': 1})
+```
+
+### Display
+
+#### String Representation
+
+```python
+print(jobs)
+```
+
+**Output:**
+```
+Jobs for owner@example.com:
+  📥 Data Analysis (inbox) - submitted by: analyst@example.com
+  ✅ Model Training (approved) - submitted by: analyst@example.com
+  🎉 Report Generation (done) - submitted by: researcher@example.com
+
+Jobs for peer@example.com:
+  📥 Data Export (inbox) - submitted by: owner@example.com
+```
+
+#### HTML Representation (Jupyter)
+
+```python
+jobs  # Displays formatted tables grouped by user
+```
+
+In Jupyter notebooks, displays separate tables for each datasite owner with:
+- Job name
+- Status with emoji
+- Submitter
+- Submission timestamp
+
+### Length
+
+```python
+num_jobs = len(jobs)
+print(f"Total jobs: {num_jobs}")
+```
+
+## Complete Example
+
+```python
+from syft_job import get_client
+
+# Get client and jobs
+client = get_client(
+    syftbox_folder_path="~/.syftbox",
+    email="owner@example.com"
+)
+
+jobs = client.jobs
+
+# Work with individual jobs
+for job in jobs:
+    if job.status == "inbox":
+        print(f"New job: {job.name}")
+        
+        # Approve job
+        if job.datasite_owner_email == client.config.email:
+            job.approve()
+    
+    elif job.status == "done":
+        # Check outputs
+        for output in job.output_paths:
+            print(f"Output: {output}")
+        
+        # View logs
+        print(job.stdout)
+        
+        # Share results
+        job.share_outputs(["analyst@example.com"])
+        job.share_logs(["analyst@example.com"])
+        
+        # Rerun if needed
+        if some_condition:
+            job.rerun()
+
+# Access specific job
+analysis_job = jobs["Data Analysis"]
+analysis_job.approve()
+
+# Deposit results
+result_path = analysis_job.accept_by_depositing_result(
+    path="./results.csv"
+)
+print(f"Results deposited at: {result_path}")
+```
+
+## Job Workflow
+
+```python
+# 1. Job submitted (status: inbox)
+job = jobs["New Analysis"]
+print(job.status)  # "inbox"
+
+# 2. Approve job (status: approved)
+job.approve()
+print(job.status)  # "approved"
+
+# 3. Job runs (via JobRunner)
+# Runner executes job and sets status to done
+
+# 4. View results (status: done)
+for output in job.output_paths:
+    print(output)
+
+print(job.stdout)  # View execution logs
+
+# 5. Rerun if needed
+job.rerun()  # Status back to "approved"
+```

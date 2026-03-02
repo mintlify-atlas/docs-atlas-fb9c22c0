@@ -1,0 +1,205 @@
+---
+title: syft-permissions
+description: ACL tree-based permission system for Syft datasites
+---
+
+`syft-permissions` is the core permission engine for SyftBox, providing an ACL (Access Control List) tree-based system for managing file and folder permissions on datasites.
+
+## Installation
+
+```bash
+pip install syft-permissions
+```
+
+<Note>
+For most use cases, you should use [syft-perm](/packages/syft-perm) instead, which provides a user-friendly API on top of this package.
+</Note>
+
+## When to Use
+
+Use `syft-permissions` when you need to:
+
+- Build custom permission systems on top of the ACL engine
+- Implement low-level permission checks
+- Create permission rules and rulesets programmatically
+- Extend the SyftBox permission system
+
+For day-to-day permission management, use [syft-perm](/packages/syft-perm) instead.
+
+## Core Concepts
+
+### ACL Service
+
+The `ACLService` is the core engine that processes permission requests against rulesets.
+
+### Access Levels
+
+- **READ**: View file contents
+- **CREATE**: Read + create new files in folders
+- **WRITE**: Read + Create + modify existing files
+- **ADMIN**: Read + Create + Write + manage permissions
+
+### RuleSet
+
+A `RuleSet` is a collection of rules stored in `syftperm.yaml` files that define who can access what.
+
+## API Reference
+
+### Main Exports
+
+```python
+from syft_permissions import (
+    ACLService,            # Core permission engine
+    ACLRequest,            # Permission request object
+    AccessLevel,           # Enum: READ, CREATE, WRITE, ADMIN
+    User,                  # User representation
+    RuleSet,               # Collection of permission rules
+    Rule,                  # Individual permission rule
+    Access,                # Access specification
+    PERMISSION_FILE_NAME,  # "syftperm.yaml"
+)
+```
+
+## Basic Usage
+
+### Creating a Permission Service
+
+```python
+from syft_permissions import ACLService, RuleSet
+from pathlib import Path
+
+# Initialize the ACL service
+service = ACLService(root_path=Path("/path/to/datasite"))
+```
+
+### Making Permission Requests
+
+```python
+from syft_permissions import ACLRequest, AccessLevel, User
+
+# Create a permission request
+request = ACLRequest(
+    user=User(email="scientist@example.com"),
+    path=Path("/path/to/file.csv"),
+    access_level=AccessLevel.READ
+)
+
+# Check if access is granted
+result = service.check_access(request)
+if result.granted:
+    print("Access granted!")
+else:
+    print(f"Access denied: {result.reason}")
+```
+
+### Creating RuleSets
+
+```python
+from syft_permissions import RuleSet, Rule, Access, AccessLevel
+
+# Create a ruleset
+ruleset = RuleSet(
+    rules=[
+        Rule(
+            pattern="**/*.csv",
+            access=Access(
+                read=["scientist@example.com"],
+                write=["owner@example.com"],
+                admin=["owner@example.com"]
+            )
+        ),
+        Rule(
+            pattern="public/**",
+            access=Access(
+                read=["*"],  # Everyone can read
+                write=["owner@example.com"]
+            )
+        )
+    ]
+)
+
+# Save to syftperm.yaml
+ruleset_path = Path("/path/to/folder") / PERMISSION_FILE_NAME
+ruleset.save(ruleset_path)
+```
+
+### Working with Access Levels
+
+```python
+from syft_permissions import AccessLevel
+
+# Access levels in hierarchy (each includes all lower levels)
+print(AccessLevel.READ)    # Lowest level
+print(AccessLevel.CREATE)  # Includes READ
+print(AccessLevel.WRITE)   # Includes READ + CREATE
+print(AccessLevel.ADMIN)   # Highest level, includes all
+
+# Check access level hierarchy
+if AccessLevel.WRITE >= AccessLevel.READ:
+    print("Write access includes read permissions")
+```
+
+## Permission File Format
+
+The permission system uses `syftperm.yaml` files:
+
+```yaml
+rules:
+  - pattern: "**/*.csv"
+    access:
+      read:
+        - scientist@example.com
+        - analyst@example.com
+      write:
+        - owner@example.com
+  
+  - pattern: "public/**"
+    access:
+      read:
+        - "*"  # Everyone
+      create:
+        - owner@example.com
+      write:
+        - owner@example.com
+```
+
+## Pattern Matching
+
+The system uses glob patterns for matching paths:
+
+- `**/*.csv` - All CSV files in any subdirectory
+- `public/**` - Everything in the public folder
+- `*.json` - All JSON files in current directory
+- `data/*/results.csv` - results.csv in any subdirectory of data
+
+## Advanced Usage
+
+### Custom Permission Logic
+
+```python
+from syft_permissions import ACLService, RuleSet
+
+class CustomACLService(ACLService):
+    def check_access(self, request: ACLRequest) -> ACLResult:
+        # Add custom logic before checking
+        if request.user.email.endswith("@trusted-domain.com"):
+            # Grant automatic access to trusted domain
+            return ACLResult(granted=True)
+        
+        # Fall back to standard ACL checking
+        return super().check_access(request)
+```
+
+## Dependencies
+
+- `pydantic>=2.11.7` - Data validation and models
+- `pyyaml>=6.0` - YAML file parsing
+- `wcmatch>=10.0` - Advanced glob pattern matching
+
+## Related Packages
+
+- [syft-perm](/packages/syft-perm) - User-friendly permission API (recommended for most users)
+
+## Documentation
+
+For detailed documentation, see the [permission user docs](https://github.com/OpenMined/syft/blob/main/packages/syft-permissions/docs/permission-user-docs.md).

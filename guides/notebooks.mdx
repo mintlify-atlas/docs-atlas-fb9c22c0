@@ -1,0 +1,804 @@
+---
+title: Notebooks Guide
+description: Best practices for using Syft Client in Jupyter notebooks and Google Colab
+---
+
+# Notebooks Guide
+
+This guide covers environment-specific workflows, best practices, and common patterns for using Syft Client in Jupyter notebooks and Google Colab.
+
+## Environment Detection
+
+Syft Client automatically detects your environment and configures authentication accordingly:
+
+```python
+import syft_client as sc
+
+# Auto-detects environment (Colab or Jupyter)
+client = sc.login_ds()
+```
+
+Under the hood, environment detection works as follows:
+
+```python
+def check_env() -> Environment:
+    try:
+        import google.colab  # noqa: F401
+        return Environment.COLAB
+    except Exception:
+        return Environment.JUPYTER
+```
+
+**Source:** `syft_client/sync/utils/syftbox_utils.py:10-17`
+
+## Google Colab Workflows
+
+### Setup in Colab
+
+<Steps>
+  <Step title="Install Syft Client">
+    ```python
+    !pip install syft-client
+    ```
+  </Step>
+  
+  <Step title="Login (auto-authenticated)">
+    ```python
+    import syft_client as sc
+    
+    # For Data Scientists
+    client = sc.login_ds()
+    
+    # For Data Owners
+    client = sc.login_do()
+    ```
+    
+    Colab will prompt you to authorize access to Google Drive.
+  </Step>
+  
+  <Step title="Start working">
+    ```python
+    # View datasets
+    datasets = client.datasets.get_all()
+    
+    # Submit a job
+    client.submit_python_job(
+        user="owner@example.com",
+        code_path="analysis.py",
+        job_name="Colab Analysis"
+    )
+    ```
+  </Step>
+</Steps>
+
+### Colab-Specific Features
+
+#### Automatic Email Detection
+
+Colab automatically detects your Google account email:
+
+```python
+import syft_client as sc
+
+# Email auto-detected from your Google account
+client = sc.login_ds()
+print(f"Logged in as: {client.email}")
+```
+
+**Source:** `syft_client/sync/utils/syftbox_utils.py:20-28`
+
+#### SyftBox Folder Location
+
+In Colab, your SyftBox folder is located at:
+
+```python
+# Colab: /content/SyftBox_{your_email}
+print(client.syftbox_folder)
+# Output: /content/SyftBox_scientist@gmail.com
+```
+
+**Source:** `syft_client/sync/syftbox_manager.py:68-69`
+
+### Complete Colab Example (Data Scientist)
+
+```python
+# Install Syft Client
+!pip install syft-client
+
+import syft_client as sc
+import json
+
+# Login
+client = sc.login_ds()
+
+# Add a data owner peer
+client.add_peer("hospital@example.com")
+
+# Sync to get latest datasets
+client.sync()
+
+# View available datasets
+datasets = client.datasets.get_all()
+for dataset in datasets:
+    print(f"{dataset.name} from {dataset.owner}")
+
+# Create analysis script in Colab
+with open("/content/analysis.py", "w") as f:
+    f.write("""
+import syft_client as sc
+import json
+
+# Load dataset
+data_path = sc.resolve_dataset_file_path("patient-records")
+with open(data_path, "r") as f:
+    data = f.read()
+
+# Analyze
+result = {"record_count": len(data.split('\n'))}
+
+# Save result
+with open("outputs/result.json", "w") as f:
+    f.write(json.dumps(result))
+""")
+
+# Submit job
+client.submit_python_job(
+    user="hospital@example.com",
+    code_path="/content/analysis.py",
+    job_name="Patient Count Analysis",
+    dependencies=["pandas"]
+)
+
+print("Job submitted! Waiting for approval...")
+```
+
+### Complete Colab Example (Data Owner)
+
+```python
+# Install Syft Client
+!pip install syft-client
+
+import syft_client as sc
+from google.colab import files
+import pandas as pd
+
+# Login as data owner
+client = sc.login_do()
+
+# Create sample data
+mock_data = pd.DataFrame({
+    "patient_id": [1, 2, 3],
+    "age": ["XX", "XX", "XX"],  # Anonymized
+    "diagnosis": ["Type A", "Type B", "Type A"]
+})
+
+private_data = pd.DataFrame({
+    "patient_id": [1, 2, 3],
+    "age": [45, 32, 67],  # Real data
+    "diagnosis": ["Type A", "Type B", "Type A"]
+})
+
+# Save to files
+mock_data.to_csv("/content/mock.csv", index=False)
+private_data.to_csv("/content/private.csv", index=False)
+
+# Create dataset
+client.create_dataset(
+    name="patient-records",
+    mock_path="/content/mock.csv",
+    private_path="/content/private.csv",
+    summary="Anonymized patient records",
+    users="any"  # Share with all approved peers
+)
+
+print("Dataset created!")
+
+# Approve pending peer requests
+client.load_peers()
+for peer in client.peers:
+    if peer.is_pending:
+        print(f"Approving: {peer.email}")
+        client.approve_peer_request(peer.email)
+
+# Check for jobs
+jobs = client.jobs
+for job in jobs:
+    print(f"Job: {job.name} - Status: {job.status}")
+    if job.status == "pending":
+        job.approve()
+        print(f"Approved: {job.name}")
+
+# Execute approved jobs
+client.process_approved_jobs(
+    stream_output=True,
+    share_outputs_with_submitter=True,
+    share_logs_with_submitter=True
+)
+```
+
+## Jupyter Workflows
+
+### Setup in Jupyter
+
+<Steps>
+  <Step title="Install Syft Client">
+    ```bash
+    pip install syft-client
+    ```
+  </Step>
+  
+  <Step title="Set up OAuth tokens">
+    Follow the [Authentication Guide](/guides/authentication) to create OAuth tokens.
+  </Step>
+  
+  <Step title="Login with token">
+    ```python
+    import syft_client as sc
+    
+    # Data Scientist
+    client = sc.login_ds(
+        email="scientist@gmail.com",
+        token_path="credentials/token_ds.json"
+    )
+    
+    # Data Owner
+    client = sc.login_do(
+        email="owner@gmail.com",
+        token_path="credentials/token_do.json"
+    )
+    ```
+  </Step>
+</Steps>
+
+### Jupyter-Specific Configuration
+
+#### Environment Variable Setup
+
+Set default token path in your notebook:
+
+```python
+import os
+from pathlib import Path
+
+# Set default token path
+os.environ["SYFTCLIENT_TOKEN_PATH"] = str(
+    Path.home() / "credentials" / "token_ds.json"
+)
+
+import syft_client as sc
+
+# Token path read from environment variable
+client = sc.login_ds(email="scientist@gmail.com")
+```
+
+**Source:** `syft_client/sync/config/config.py:5-12`
+
+#### SyftBox Folder Location
+
+In Jupyter, your SyftBox folder is in your home directory:
+
+```python
+# Jupyter: ~/SyftBox_{your_email}
+print(client.syftbox_folder)
+# Output: /home/user/SyftBox_scientist@gmail.com
+```
+
+**Source:** `syft_client/sync/syftbox_manager.py:64-65`
+
+### Complete Jupyter Example (Data Scientist)
+
+```python
+import syft_client as sc
+from pathlib import Path
+import json
+import pandas as pd
+
+# Login
+client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path="credentials/token_ds.json"
+)
+
+# Add data owner
+client.add_peer("hospital@example.com")
+
+# View available datasets
+client.sync()
+datasets = client.datasets.get_all()
+for dataset in datasets:
+    print(f"Dataset: {dataset.name}")
+    print(f"Owner: {dataset.owner}")
+    print(f"Summary: {dataset.summary}")
+    print(f"Tags: {dataset.tags}")
+    print("---")
+
+# Get a specific dataset
+dataset = client.datasets.get(
+    name="patient-records",
+    datasite="hospital@example.com"
+)
+
+# Explore mock data
+mock_file = dataset.mock_files[0]
+mock_df = pd.read_csv(mock_file)
+print("Mock data preview:")
+print(mock_df.head())
+
+# Create analysis code
+code_dir = Path("analysis_project")
+code_dir.mkdir(exist_ok=True)
+
+# Write main analysis script
+with open(code_dir / "main.py", "w") as f:
+    f.write("""
+import syft_client as sc
+import pandas as pd
+import json
+
+# Load dataset
+data_path = sc.resolve_dataset_file_path("patient-records")
+df = pd.read_csv(data_path)
+
+# Perform analysis
+diagnosis_counts = df['diagnosis'].value_counts().to_dict()
+
+result = {
+    "total_records": len(df),
+    "diagnosis_distribution": diagnosis_counts
+}
+
+# Save results
+with open("outputs/results.json", "w") as f:
+    json.dump(result, f, indent=2)
+
+print(f"Analyzed {len(df)} records")
+""")
+
+# Write requirements
+with open(code_dir / "requirements.txt", "w") as f:
+    f.write("pandas==2.0.0\n")
+
+# Submit job
+client.submit_python_job(
+    user="hospital@example.com",
+    code_path=str(code_dir),
+    entrypoint="main.py",
+    job_name="Diagnosis Analysis",
+    dependencies=["pandas==2.0.0"]
+)
+
+print("Job submitted successfully!")
+
+# Check job status
+for job in client.jobs:
+    print(f"{job.name}: {job.status}")
+```
+
+### Complete Jupyter Example (Data Owner)
+
+```python
+import syft_client as sc
+from pathlib import Path
+import pandas as pd
+
+# Login
+client = sc.login_do(
+    email="owner@gmail.com",
+    token_path="credentials/token_do.json"
+)
+
+# Create sample datasets
+data_dir = Path("datasets")
+data_dir.mkdir(exist_ok=True)
+
+# Mock data (publicly viewable)
+mock_df = pd.DataFrame({
+    "patient_id": [1, 2, 3, 4, 5],
+    "age": ["XX", "XX", "XX", "XX", "XX"],
+    "diagnosis": ["Type A", "Type B", "Type A", "Type C", "Type B"]
+})
+mock_df.to_csv(data_dir / "mock.csv", index=False)
+
+# Private data (only accessible via jobs)
+private_df = pd.DataFrame({
+    "patient_id": [1, 2, 3, 4, 5],
+    "age": [45, 32, 67, 28, 51],
+    "diagnosis": ["Type A", "Type B", "Type A", "Type C", "Type B"]
+})
+private_df.to_csv(data_dir / "private.csv", index=False)
+
+# Create README
+readme = """
+# Patient Records Dataset
+
+Anonymized patient diagnosis records for research purposes.
+
+## Fields
+- patient_id: Unique identifier
+- age: Patient age (anonymized in mock data)
+- diagnosis: Diagnosis type
+
+## Usage
+Submit a job to analyze the real private data.
+"""
+
+with open(data_dir / "README.md", "w") as f:
+    f.write(readme)
+
+# Create dataset in Syft
+client.create_dataset(
+    name="patient-records",
+    mock_path=str(data_dir / "mock.csv"),
+    private_path=str(data_dir / "private.csv"),
+    readme_path=str(data_dir / "README.md"),
+    summary="Anonymized patient diagnosis records",
+    tags=["healthcare", "research", "diagnosis"],
+    users="any",
+    upload_private=True  # Extra security for private data
+)
+
+print("Dataset created!")
+
+# Manage peer requests
+client.load_peers()
+print("\nPeer Requests:")
+for peer in client.peers:
+    if peer.is_pending:
+        print(f"Pending: {peer.email}")
+        # Review and approve manually
+        # client.approve_peer_request(peer.email)
+
+# Review jobs
+print("\nSubmitted Jobs:")
+for job in client.jobs:
+    print(f"\nJob: {job.name}")
+    print(f"Status: {job.status}")
+    print(f"Submitted by: {job.submitted_by}")
+    
+    if job.status == "pending":
+        # Review job code
+        print("\nJob Code:")
+        code_files = list(job.job_dir.rglob("*.py"))
+        for code_file in code_files:
+            with open(code_file, "r") as f:
+                print(f.read())
+        
+        # Approve after review
+        # job.approve()
+```
+
+## Best Practices for Notebooks
+
+### 1. Cell Organization
+
+Organize your notebook into clear sections:
+
+```python
+# ============================================
+# SETUP
+# ============================================
+import syft_client as sc
+import pandas as pd
+import json
+
+client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path="credentials/token_ds.json"
+)
+
+# ============================================
+# DISCOVER DATASETS
+# ============================================
+client.sync()
+datasets = client.datasets.get_all()
+
+# ============================================
+# ANALYZE MOCK DATA
+# ============================================
+dataset = client.datasets.get("my-dataset", datasite="owner@example.com")
+mock_df = pd.read_csv(dataset.mock_files[0])
+mock_df.head()
+
+# ============================================
+# SUBMIT JOB
+# ============================================
+client.submit_python_job(...)
+
+# ============================================
+# RETRIEVE RESULTS
+# ============================================
+client.sync()
+job = client.jobs[0]
+result = pd.read_csv(job.output_paths[0])
+```
+
+### 2. Disable Auto-Sync for Exploratory Work
+
+```python
+import os
+os.environ["PRE_SYNC"] = "false"
+
+import syft_client as sc
+client = sc.login_ds(...)
+
+# These won't auto-sync (faster for exploration)
+datasets = client.datasets.get_all()
+jobs = client.jobs
+peers = client.peers
+
+# Manually sync when ready
+client.sync()
+```
+
+**Source:** `syft_client/sync/syftbox_manager.py:419`
+
+### 3. Error Handling in Notebooks
+
+```python
+try:
+    client.submit_python_job(
+        user="owner@example.com",
+        code_path="analysis.py",
+        job_name="Analysis"
+    )
+    print("✓ Job submitted successfully")
+except FileExistsError as e:
+    print(f"✗ Job already exists: {e}")
+except ValueError as e:
+    print(f"✗ Invalid parameters: {e}")
+except Exception as e:
+    print(f"✗ Unexpected error: {e}")
+    import traceback
+    traceback.print_exc()
+```
+
+### 4. Progress Tracking
+
+```python
+from IPython.display import clear_output
+import time
+
+print("Waiting for job approval...")
+while True:
+    client.sync()
+    job = client.jobs[0]
+    
+    clear_output(wait=True)
+    print(f"Job Status: {job.status}")
+    
+    if job.status == "approved":
+        print("Job approved! Executing...")
+        break
+    elif job.status == "rejected":
+        print(f"Job rejected: {job.rejection_reason}")
+        break
+    
+    time.sleep(10)  # Check every 10 seconds
+```
+
+### 5. Visualization in Notebooks
+
+```python
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Load job results
+client.sync()
+job = client.jobs[0]
+if job.status == "done" and job.output_paths:
+    df = pd.read_csv(job.output_paths[0])
+    
+    # Visualize
+    df.plot(kind="bar")
+    plt.title("Analysis Results")
+    plt.show()
+else:
+    print(f"Job not ready. Status: {job.status}")
+```
+
+## Writing Job Code in Notebooks
+
+### Method 1: Write to File
+
+```python
+# Create analysis script
+with open("analysis.py", "w") as f:
+    f.write("""
+import syft_client as sc
+import json
+
+data_path = sc.resolve_dataset_file_path("my-dataset")
+with open(data_path, "r") as f:
+    data = f.read()
+
+result = {"length": len(data)}
+with open("outputs/result.json", "w") as f:
+    json.dump(result, f)
+""")
+
+# Submit
+client.submit_python_job(
+    user="owner@example.com",
+    code_path="analysis.py",
+    job_name="My Analysis"
+)
+```
+
+### Method 2: Use %%writefile Magic (Jupyter)
+
+```python
+%%writefile analysis.py
+import syft_client as sc
+import json
+
+data_path = sc.resolve_dataset_file_path("my-dataset")
+with open(data_path, "r") as f:
+    data = f.read()
+
+result = {"length": len(data)}
+with open("outputs/result.json", "w") as f:
+    json.dump(result, f)
+```
+
+```python
+# Submit the file
+client.submit_python_job(
+    user="owner@example.com",
+    code_path="analysis.py",
+    job_name="My Analysis"
+)
+```
+
+### Method 3: Project Folder (Complex Jobs)
+
+```python
+from pathlib import Path
+
+# Create project structure
+project = Path("my_analysis")
+project.mkdir(exist_ok=True)
+
+# Main script
+with open(project / "main.py", "w") as f:
+    f.write("""
+import syft_client as sc
+from utils import process_data
+import json
+
+data_path = sc.resolve_dataset_file_path("my-dataset")
+result = process_data(data_path)
+
+with open("outputs/result.json", "w") as f:
+    json.dump(result, f)
+""")
+
+# Helper module
+with open(project / "utils.py", "w") as f:
+    f.write("""
+def process_data(path):
+    with open(path, "r") as f:
+        data = f.read()
+    return {"length": len(data)}
+""")
+
+# Submit folder
+client.submit_python_job(
+    user="owner@example.com",
+    code_path=str(project),
+    entrypoint="main.py",
+    job_name="Complex Analysis",
+    dependencies=["numpy", "pandas"]
+)
+```
+
+## Performance Tips
+
+### Minimize Sync Calls
+
+```python
+import os
+os.environ["PRE_SYNC"] = "false"
+
+# Do multiple operations without syncing
+client.add_peer("peer1@example.com")
+client.add_peer("peer2@example.com")
+
+# Sync once at the end
+client.sync()
+```
+
+### Cache Results Locally
+
+```python
+# Fetch once
+datasets = client.datasets.get_all()
+
+# Use cached results in subsequent cells
+for dataset in datasets:
+    print(dataset.name)
+```
+
+### Use Checkpoints (Data Owners)
+
+```python
+# Create checkpoint after major changes
+client.create_dataset(...)
+client.create_dataset(...)
+client.create_dataset(...)
+
+client.create_checkpoint()  # Speed up future syncs
+```
+
+**Source:** `syft_client/sync/syftbox_manager.py:1246-1264`
+
+## Troubleshooting in Notebooks
+
+### Colab: "Email is required" Error
+
+If auto-detection fails:
+
+```python
+import syft_client as sc
+
+# Explicitly provide email
+client = sc.login_ds(email="your.email@gmail.com")
+```
+
+### Jupyter: Import Errors
+
+Ensure you're using the correct kernel:
+
+```bash
+# Install in the same environment as your kernel
+pip install syft-client
+
+# Or install in a specific kernel
+python -m pip install syft-client
+```
+
+### Restart Runtime After Installation
+
+In Colab, restart the runtime after installing:
+
+```python
+!pip install syft-client
+
+# Then: Runtime → Restart Runtime
+# Or programmatically:
+import os
+os.kill(os.getpid(), 9)
+```
+
+### View Debug Information
+
+```python
+import syft_client as sc
+
+client = sc.login_ds(...)
+
+# Print client info
+print(f"Email: {client.email}")
+print(f"SyftBox folder: {client.syftbox_folder}")
+print(f"Is Data Owner: {client.is_do}")
+
+# Check environment
+from syft_client.sync.utils.syftbox_utils import check_env
+print(f"Environment: {check_env()}")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Scientist Guide" icon="chart-line" href="/guides/data-scientist">
+    Learn the complete data scientist workflow
+  </Card>
+  <Card title="Data Owner Guide" icon="database" href="/guides/data-owner">
+    Manage datasets and approve jobs
+  </Card>
+  <Card title="Authentication Guide" icon="key" href="/guides/authentication">
+    Set up OAuth tokens for Jupyter
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/client/login">
+    Explore the full API documentation
+  </Card>
+</CardGroup>

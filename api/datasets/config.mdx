@@ -1,0 +1,295 @@
+---
+title: SyftBoxConfig
+description: Configuration class for SyftBox setup
+---
+
+## Overview
+
+`SyftBoxConfig` is a configuration class that stores essential information about a SyftBox installation, including the location of the SyftBox folder and the user's email address.
+
+## Class Definition
+
+```python
+from syft_datasets import SyftBoxConfig
+from pathlib import Path
+
+config = SyftBoxConfig(
+    syftbox_folder=Path("/path/to/syftbox"),
+    email="user@example.com"
+)
+```
+
+## Fields
+
+<ParamField path="syftbox_folder" type="Path" required>
+  Path to the SyftBox folder on the local filesystem. This is the root directory where all SyftBox data is stored.
+</ParamField>
+
+<ParamField path="email" type="str" required>
+  Email address associated with the SyftBox datasite. This serves as the unique identifier for the datasite owner.
+</ParamField>
+
+## Properties
+
+### private_dir
+
+Returns the path to the private data directory.
+
+```python
+private_path = config.private_dir
+# Returns: syftbox_folder/private
+```
+
+<ResponseField name="return" type="Path">
+  Path to the private directory within the SyftBox folder
+</ResponseField>
+
+### public_dir
+
+Returns the path to the public data directory for the configured email.
+
+```python
+public_path = config.public_dir
+# Returns: syftbox_folder/user@example.com/public
+```
+
+<ResponseField name="return" type="Path">
+  Path to the public directory for the user's datasite
+</ResponseField>
+
+## Usage Examples
+
+### Basic Configuration
+
+```python
+from syft_datasets import SyftBoxConfig
+from pathlib import Path
+
+# Create configuration
+config = SyftBoxConfig(
+    syftbox_folder=Path.home() / "SyftBox",
+    email="researcher@university.edu"
+)
+
+print(f"SyftBox root: {config.syftbox_folder}")
+print(f"User email: {config.email}")
+print(f"Private directory: {config.private_dir}")
+print(f"Public directory: {config.public_dir}")
+```
+
+### Using with SyftDatasetManager
+
+```python
+from syft_datasets import SyftBoxConfig, SyftDatasetManager
+from pathlib import Path
+
+# Create config
+config = SyftBoxConfig(
+    syftbox_folder=Path.home() / "SyftBox",
+    email="data_owner@example.com"
+)
+
+# Use config to initialize manager
+manager = SyftDatasetManager.from_config(config)
+
+# Access configuration from manager
+print(f"Manager email: {manager.syftbox_config.email}")
+print(f"Public dir: {manager.syftbox_config.public_dir}")
+```
+
+### Accessing Directories
+
+```python
+# Get private data directory
+private_dir = config.private_dir
+if not private_dir.exists():
+    private_dir.mkdir(parents=True, exist_ok=True)
+
+# Get public data directory
+public_dir = config.public_dir
+if not public_dir.exists():
+    public_dir.mkdir(parents=True, exist_ok=True)
+
+# List files in public directory
+for item in public_dir.iterdir():
+    print(f"Public item: {item.name}")
+```
+
+### Configuration from Environment
+
+```python
+import os
+from pathlib import Path
+from syft_datasets import SyftBoxConfig
+
+# Load from environment variables
+config = SyftBoxConfig(
+    syftbox_folder=Path(os.getenv("SYFTBOX_PATH", Path.home() / "SyftBox")),
+    email=os.getenv("SYFTBOX_EMAIL", "default@example.com")
+)
+```
+
+## Directory Structure
+
+When you create a `SyftBoxConfig`, it expects and works with the following directory structure:
+
+```
+syftbox_folder/
+├── private/                          # Private data (config.private_dir)
+│   └── syft_datasets/               # Private dataset metadata
+│       └── dataset_name/
+│           ├── private_metadata.yaml
+│           └── data files...
+└── user@example.com/                 # User's datasite
+    └── public/                       # Public data (config.public_dir)
+        └── syft_datasets/           # Public datasets
+            └── dataset_name/
+                ├── dataset.yaml
+                ├── README.md
+                └── mock data files...
+```
+
+## Integration with Dataset Manager
+
+The `SyftBoxConfig` is used internally by `SyftDatasetManager` to:
+
+1. **Locate datasets**: Determine where to store and find dataset files
+2. **Manage permissions**: Identify the owner when setting access controls
+3. **Resolve paths**: Convert between SyftBoxURLs and local filesystem paths
+4. **Multi-datasite support**: Access datasets from multiple datasites
+
+```python
+from syft_datasets import SyftDatasetManager, SyftBoxConfig
+from pathlib import Path
+
+# Manual initialization
+config = SyftBoxConfig(
+    syftbox_folder=Path("~/SyftBox"),
+    email="owner@example.com"
+)
+
+manager = SyftDatasetManager.from_config(config)
+
+# The manager uses config to determine paths
+dataset = manager.create(
+    name="my_data",
+    mock_path="./mock",
+    private_path="./private"
+)
+
+# Dataset locations are determined by config
+print(f"Mock data: {dataset.mock_dir}")
+# Output: ~/SyftBox/owner@example.com/public/syft_datasets/my_data
+
+print(f"Private data: {dataset.private_dir}")
+# Output: ~/SyftBox/private/syft_datasets/my_data
+```
+
+## Validation
+
+`SyftBoxConfig` uses Pydantic for validation:
+
+```python
+from syft_datasets import SyftBoxConfig
+from pathlib import Path
+
+# Valid configuration
+config = SyftBoxConfig(
+    syftbox_folder=Path("/valid/path"),
+    email="valid@example.com"
+)
+
+# Invalid - missing required fields
+try:
+    config = SyftBoxConfig()
+except ValueError as e:
+    print(f"Error: {e}")
+
+# Invalid - wrong types
+try:
+    config = SyftBoxConfig(
+        syftbox_folder="not a Path object",  # Should be Path
+        email=123  # Should be str
+    )
+except ValueError as e:
+    print(f"Error: {e}")
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Path objects">
+    Always use `pathlib.Path` objects for `syftbox_folder` rather than strings:
+    
+    ```python
+    # Good
+    config = SyftBoxConfig(
+        syftbox_folder=Path.home() / "SyftBox",
+        email="user@example.com"
+    )
+    
+    # Avoid
+    config = SyftBoxConfig(
+        syftbox_folder="~/SyftBox",  # String path
+        email="user@example.com"
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Validate email format">
+    Ensure the email is a valid email address to avoid issues with datasite identification:
+    
+    ```python
+    import re
+    
+    def is_valid_email(email: str) -> bool:
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, email))
+    
+    email = "user@example.com"
+    if is_valid_email(email):
+        config = SyftBoxConfig(
+            syftbox_folder=Path.home() / "SyftBox",
+            email=email
+        )
+    ```
+  </Accordion>
+
+  <Accordion title="Check directory existence">
+    Verify that the SyftBox folder exists before creating the config:
+    
+    ```python
+    syftbox_path = Path.home() / "SyftBox"
+    
+    if not syftbox_path.exists():
+        syftbox_path.mkdir(parents=True, exist_ok=True)
+        print(f"Created SyftBox directory at {syftbox_path}")
+    
+    config = SyftBoxConfig(
+        syftbox_folder=syftbox_path,
+        email="user@example.com"
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Reuse configuration">
+    Create the config once and reuse it across your application:
+    
+    ```python
+    # config.py
+    from pathlib import Path
+    from syft_datasets import SyftBoxConfig
+    
+    APP_CONFIG = SyftBoxConfig(
+        syftbox_folder=Path.home() / "SyftBox",
+        email="app@example.com"
+    )
+    
+    # main.py
+    from config import APP_CONFIG
+    from syft_datasets import SyftDatasetManager
+    
+    manager = SyftDatasetManager.from_config(APP_CONFIG)
+    ```
+  </Accordion>
+</AccordionGroup>

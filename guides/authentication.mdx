@@ -1,0 +1,585 @@
+---
+title: Authentication Setup
+description: Complete guide to setting up OAuth tokens and Google Drive credentials for Syft Client
+---
+
+# Authentication Setup
+
+Syft Client uses Google Drive as the communication layer for peer-to-peer data sharing. This guide walks you through setting up authentication for different environments.
+
+## Overview
+
+Syft Client supports two authentication methods:
+
+1. **Google Colab** - Automatic authentication using your Google account
+2. **Jupyter/Local** - OAuth token-based authentication
+
+## Google Colab (Easiest)
+
+Google Colab provides the simplest authentication experience:
+
+```python
+import syft_client as sc
+
+# For Data Scientists
+client = sc.login_ds()
+
+# For Data Owners
+client = sc.login_do()
+```
+
+When you run `login_ds()` or `login_do()` in Colab:
+1. Colab automatically detects you're in a Colab environment
+2. Your Google account email is auto-detected
+3. Authentication happens through Colab's built-in OAuth flow
+
+<Note>
+No configuration required! Syft Client automatically uses `google.colab.auth` to authenticate.
+</Note>
+
+**Source:** `syft_client/sync/login.py:10-53` and `syft_client/sync/utils/syftbox_utils.py:10-28`
+
+## Jupyter & Local Environments
+
+For Jupyter notebooks and local development, you need to create OAuth tokens manually.
+
+### Quick Start
+
+<Steps>
+  <Step title="Create credentials folder">
+    ```bash
+    mkdir -p credentials
+    ```
+  </Step>
+  
+  <Step title="Set up Google Cloud OAuth">
+    Follow the detailed steps below to create OAuth credentials
+  </Step>
+  
+  <Step title="Generate tokens">
+    Run the token generation script for each user:
+    ```bash
+    python scripts/create_token.py \
+      --cred-path path/to/credentials.json \
+      --token-path credentials/token_do.json
+    
+    python scripts/create_token.py \
+      --cred-path path/to/credentials.json \
+      --token-path credentials/token_ds.json
+    ```
+  </Step>
+  
+  <Step title="Use tokens in your code">
+    ```python
+    import syft_client as sc
+    
+    # Data Scientist
+    client = sc.login_ds(
+        email="scientist@gmail.com",
+        token_path="credentials/token_ds.json"
+    )
+    
+    # Data Owner
+    client = sc.login_do(
+        email="owner@gmail.com",
+        token_path="credentials/token_do.json"
+    )
+    ```
+  </Step>
+</Steps>
+
+## Setting Up Google Cloud OAuth
+
+### Prerequisites
+
+- A Google Cloud account
+- Access to [Google Cloud Console](https://console.cloud.google.com/)
+
+### Step 1: Create or Select a Project
+
+<Steps>
+  <Step title="Go to Google Cloud Console">
+    Navigate to https://console.cloud.google.com/
+  </Step>
+  
+  <Step title="Create a new project">
+    - Click the project dropdown at the top
+    - Click "New Project"
+    - Enter a project name (e.g., "Syft Client")
+    - Click "Create"
+  </Step>
+</Steps>
+
+### Step 2: Enable Google Drive API
+
+<Steps>
+  <Step title="Navigate to APIs & Services">
+    In the left sidebar, go to **APIs & Services** → **Library**
+  </Step>
+  
+  <Step title="Search for Google Drive API">
+    - Type "Google Drive API" in the search box
+    - Click on "Google Drive API"
+    - Click **"Enable"**
+  </Step>
+</Steps>
+
+### Step 3: Configure OAuth Consent Screen
+
+<Steps>
+  <Step title="Go to OAuth consent screen">
+    Navigate to **APIs & Services** → **OAuth consent screen**
+  </Step>
+  
+  <Step title="Choose user type">
+    - Select **"External"** (for personal Google accounts)
+    - Or **"Internal"** (if using Google Workspace)
+    - Click **"Create"**
+  </Step>
+  
+  <Step title="Fill in app information">
+    - **App name:** "Syft Client" (or your preferred name)
+    - **User support email:** Your email address
+    - **Developer contact:** Your email address
+    - Click **"Save and Continue"**
+  </Step>
+  
+  <Step title="Add scopes">
+    - Click **"Add or Remove Scopes"**
+    - Search for and select:
+      ```
+      https://www.googleapis.com/auth/drive
+      ```
+    - Click **"Update"**
+    - Click **"Save and Continue"**
+  </Step>
+  
+  <Step title="Add test users">
+    Under **"Test users"**, click **"Add Users"** and add:
+    - Your data owner email address
+    - Your data scientist email address
+    - Any other emails that will use Syft Client
+    
+    Click **"Save and Continue"**
+  </Step>
+</Steps>
+
+**Source:** `CONTRIBUTING.md:218-243`
+
+### Step 4: Create OAuth Credentials
+
+<Steps>
+  <Step title="Navigate to Credentials">
+    Go to **APIs & Services** → **Credentials**
+  </Step>
+  
+  <Step title="Create OAuth client ID">
+    - Click **"Create Credentials"** → **"OAuth client ID"**
+    - Application type: **"Desktop app"**
+    - Name: "Syft Desktop Client" (or your preferred name)
+    - Click **"Create"**
+  </Step>
+  
+  <Step title="Download credentials">
+    - Click the download icon next to your newly created credentials
+    - Save as `credentials.json` in a secure location
+  </Step>
+</Steps>
+
+<Warning>
+**Security Notice:**
+- **Never commit** `credentials.json` to git
+- **Never share** your credentials file publicly
+- Store it securely outside your project directory
+</Warning>
+
+## Generating OAuth Tokens
+
+### Using the Token Creation Script
+
+Syft Client includes a helper script to generate OAuth tokens:
+
+```python
+# scripts/create_token.py
+from pathlib import Path
+from google_auth_oauthlib.flow import InstalledAppFlow
+
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+def create_token(cred_path: Path, token_path: Path):
+    """Create a token for the GDriveFilesTransport"""
+    flow = InstalledAppFlow.from_client_secrets_file(
+        cred_path.absolute(), SCOPES
+    )
+    creds = flow.run_local_server(port=0)
+    
+    with open(token_path, "w") as token:
+        token.write(creds.to_json())
+    
+    return creds
+```
+
+**Source:** `scripts/create_token.py`
+
+### Generate Data Owner Token
+
+```bash
+python scripts/create_token.py \
+  --cred-path ~/Downloads/credentials.json \
+  --token-path credentials/token_do.json
+```
+
+<Steps>
+  <Step title="Browser window opens">
+    A browser window will open automatically
+  </Step>
+  
+  <Step title="Sign in">
+    Sign in with your **data owner** Google account
+  </Step>
+  
+  <Step title="Grant permissions">
+    - Click **"Continue"** when warned the app isn't verified
+    - Click **"Allow"** to grant Google Drive access
+  </Step>
+  
+  <Step title="Token saved">
+    The token is saved to `credentials/token_do.json`
+  </Step>
+</Steps>
+
+### Generate Data Scientist Token
+
+```bash
+python scripts/create_token.py \
+  --cred-path ~/Downloads/credentials.json \
+  --token-path credentials/token_ds.json
+```
+
+Repeat the same process, signing in with your **data scientist** Google account.
+
+<Note>
+You need separate tokens for each Google account you'll use with Syft Client.
+</Note>
+
+## Using Tokens in Your Code
+
+### Basic Usage
+
+```python
+import syft_client as sc
+from pathlib import Path
+
+# Data Scientist login
+ds_client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path="credentials/token_ds.json"
+)
+
+# Data Owner login
+do_client = sc.login_do(
+    email="owner@gmail.com",
+    token_path="credentials/token_do.json"
+)
+```
+
+### Using Environment Variables
+
+Set a default token path via environment variable:
+
+```bash
+export SYFTCLIENT_TOKEN_PATH="/path/to/credentials/token.json"
+```
+
+Then in Python:
+
+```python
+import syft_client as sc
+
+# Token path read from SYFTCLIENT_TOKEN_PATH
+client = sc.login_ds(email="scientist@gmail.com")
+```
+
+**Source:** `syft_client/sync/config/config.py:1-13` and `syft_client/sync/login.py:34`
+
+### Path Resolution
+
+Token paths support multiple formats:
+
+```python
+import syft_client as sc
+from pathlib import Path
+
+# Absolute path
+client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path="/home/user/credentials/token_ds.json"
+)
+
+# Relative path
+client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path="./credentials/token_ds.json"
+)
+
+# Path object
+token_path = Path("credentials/token_ds.json")
+client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path=token_path
+)
+```
+
+## Security Best Practices
+
+### Protecting Credentials
+
+<AccordionGroup>
+  <Accordion title="Never commit credentials to git">
+    Add to your `.gitignore`:
+    
+    ```bash
+    # .gitignore
+    credentials/
+    *.json
+    token_*.json
+    credentials.json
+    ```
+    
+    **Source:** Syft Client's `.gitignore` automatically excludes credential files
+  </Accordion>
+  
+  <Accordion title="Store credentials outside project directory">
+    ```python
+    # Good: Outside project directory
+    token_path = Path.home() / ".syft" / "token_ds.json"
+    
+    # Avoid: Inside project directory
+    token_path = "./credentials/token_ds.json"
+    ```
+  </Accordion>
+  
+  <Accordion title="Use environment variables in production">
+    ```python
+    import os
+    from pathlib import Path
+    
+    token_path = os.getenv(
+        "SYFTCLIENT_TOKEN_PATH",
+        str(Path.home() / ".syft" / "token.json")
+    )
+    
+    client = sc.login_ds(
+        email=os.getenv("SYFT_EMAIL"),
+        token_path=token_path
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Revoke tokens when compromised">
+    If your token is compromised:
+    
+    1. Visit https://myaccount.google.com/permissions
+    2. Find "Syft Client" (or your app name)
+    3. Click **"Remove access"**
+    4. Generate a new token using the script above
+  </Accordion>
+</AccordionGroup>
+
+**Source:** `CONTRIBUTING.md:273-277`
+
+### Token Permissions
+
+The OAuth token grants Syft Client access to:
+
+- **Read** files from Google Drive
+- **Write** files to Google Drive
+- **Delete** files from Google Drive (only those created by Syft Client)
+
+<Warning>
+The `https://www.googleapis.com/auth/drive` scope provides full Google Drive access. Syft Client only accesses its own folders, but the token itself has broader permissions.
+</Warning>
+
+## Testing Your Setup
+
+### Verify Token Works
+
+```python
+import syft_client as sc
+
+try:
+    client = sc.login_ds(
+        email="your.email@gmail.com",
+        token_path="credentials/token_ds.json",
+        sync=False,  # Don't sync, just test auth
+        load_peers=False
+    )
+    print("✓ Authentication successful!")
+    print(f"Email: {client.email}")
+    print(f"SyftBox folder: {client.syftbox_folder}")
+    
+except Exception as e:
+    print(f"✗ Authentication failed: {e}")
+```
+
+**Source:** Test pattern from `tests/integration/without_unit_coverage/test_login.py:45-60`
+
+## Environment-Specific Configuration
+
+### Google Colab
+
+```python
+import syft_client as sc
+
+# Auto-detects Colab environment and email
+client = sc.login_ds()
+
+# Or specify email explicitly
+client = sc.login_ds(email="scientist@gmail.com")
+```
+
+Colab-specific details:
+- SyftBox folder: `/content/SyftBox_{email}`
+- Authentication: Built-in Colab OAuth
+- No token file needed
+
+**Source:** `syft_client/sync/syftbox_manager.py:59-69` and `syft_client/sync/login.py:26-32`
+
+### Jupyter
+
+```python
+import syft_client as sc
+
+# Requires email and token_path
+client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path="credentials/token_ds.json"
+)
+```
+
+Jupyter-specific details:
+- SyftBox folder: `~/SyftBox_{email}`
+- Authentication: OAuth token file
+- Token path required (or set via `SYFTCLIENT_TOKEN_PATH`)
+
+**Source:** `syft_client/sync/syftbox_manager.py:64` and `syft_client/sync/login.py:33-44`
+
+## Troubleshooting
+
+### "Email is required for Jupyter login"
+
+In Jupyter environments, you must provide your email:
+
+```python
+# ✗ Wrong
+client = sc.login_ds()
+
+# ✓ Correct
+client = sc.login_ds(
+    email="your.email@gmail.com",
+    token_path="credentials/token_ds.json"
+)
+```
+
+### "Token path is required for Jupyter login"
+
+Provide a token path or set the environment variable:
+
+```bash
+export SYFTCLIENT_TOKEN_PATH="/path/to/token.json"
+```
+
+Or pass it explicitly:
+
+```python
+client = sc.login_ds(
+    email="your.email@gmail.com",
+    token_path="credentials/token_ds.json"
+)
+```
+
+### "Invalid grant" error
+
+Your token has expired. Generate a new one:
+
+```bash
+python scripts/create_token.py \
+  --cred-path ~/Downloads/credentials.json \
+  --token-path credentials/token_ds.json
+```
+
+### "Access denied" or "insufficient permissions"
+
+Ensure your OAuth consent screen includes:
+- The correct scope: `https://www.googleapis.com/auth/drive`
+- Your email is added as a test user
+
+Regenerate your token after updating the consent screen.
+
+## Multi-Account Setup
+
+For users who need both data owner and data scientist roles:
+
+```python
+import syft_client as sc
+
+# Data Owner client
+do_client = sc.login_do(
+    email="owner@gmail.com",
+    token_path="credentials/token_do.json"
+)
+
+# Data Scientist client (different account)
+ds_client = sc.login_ds(
+    email="scientist@gmail.com",
+    token_path="credentials/token_ds.json"
+)
+
+# Work with both clients
+do_client.create_dataset(
+    name="research-data",
+    mock_path="mock.csv",
+    private_path="private.csv",
+    users=[ds_client.email]
+)
+
+ds_client.sync()
+ds_client.submit_python_job(
+    user=do_client.email,
+    code_path="analysis.py",
+    job_name="My Analysis"
+)
+```
+
+## CI/CD and Testing
+
+For integration tests and CI/CD pipelines:
+
+```bash
+# Set environment variables
+export BEACH_EMAIL_DO="owner@gmail.com"
+export BEACH_EMAIL_DS="scientist@gmail.com"
+export SYFTCLIENT_TOKEN_PATH="credentials/token.json"
+
+# Run tests
+pytest tests/integration/test_sync_manager.py
+```
+
+**Source:** Test setup in `CONTRIBUTING.md:254-265`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Scientist Guide" icon="chart-line" href="/guides/data-scientist">
+    Start using Syft Client as a data scientist
+  </Card>
+  <Card title="Data Owner Guide" icon="database" href="/guides/data-owner">
+    Learn to manage datasets and jobs
+  </Card>
+  <Card title="Notebooks Guide" icon="book" href="/guides/notebooks">
+    Environment-specific workflows for Colab and Jupyter
+  </Card>
+  <Card title="CONTRIBUTING.md" icon="github" href="https://github.com/OpenMined/syft-client/blob/main/CONTRIBUTING.md">
+    Full development setup guide
+  </Card>
+</CardGroup>

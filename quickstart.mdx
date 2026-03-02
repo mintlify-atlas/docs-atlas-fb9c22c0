@@ -1,80 +1,272 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with Syft Client in 5 minutes
 ---
 
-## Get started in three steps
+## Install Syft Client
 
-Get your documentation site running locally and make your first customization.
+<CodeGroup>
+```bash pip
+pip install syft-client
+```
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+```bash uv (recommended)
+uv pip install syft-client
+```
+</CodeGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+`uv` is recommended for faster installs and is required for job execution. Install it with `pip install uv` if you don't have it.
 </Note>
+
+## Set up Google Drive credentials
+
+Syft Client uses Google Drive for peer-to-peer sync. You'll need OAuth credentials:
+
+<Steps>
+  <Step title="Create a Google Cloud project">
+    1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create a new project or select an existing one
+    3. Enable the Google Drive API for your project
+  </Step>
+  
+  <Step title="Create OAuth credentials">
+    1. Go to **APIs & Services > Credentials**
+    2. Click **Create Credentials > OAuth client ID**
+    3. Choose **Desktop app** as the application type
+    4. Download the credentials JSON file
+  </Step>
+  
+  <Step title="Save your token file">
+    Save the downloaded credentials file to a secure location:
+    ```bash
+    mkdir -p ~/.syft
+    mv ~/Downloads/client_secret_*.json ~/.syft/token.json
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Never commit your token file to version control! Add it to `.gitignore`.
+</Warning>
+
+## Your first login
+
+Syft Client has two roles:
+- **Data Owner (DO)**: Hosts datasets, approves jobs, and executes computations
+- **Data Scientist (DS)**: Discovers datasets and submits jobs for execution
+
+### Login as a Data Scientist
+
+Most users start as Data Scientists:
+
+<CodeGroup>
+```python Jupyter Notebook
+import syft_client as sc
+
+# Login as a Data Scientist
+client = sc.login_ds(
+    email="your.email@example.com",
+    token_path="~/.syft/token.json"
+)
+
+# You should see:
+# Client connected successfully!
+# Email: your.email@example.com
+# SyftBox folder: /Users/you/SyftBox_your.email@example.com
+```
+
+```python Google Colab
+import syft_client as sc
+
+# In Colab, email is auto-detected from your Google account
+client = sc.login_ds()
+
+# Or specify explicitly:
+client = sc.login_ds(email="your.email@example.com")
+```
+</CodeGroup>
+
+<Info>
+The first login will open a browser for Google OAuth authorization. Grant the requested permissions to allow Syft Client to access your Google Drive.
+</Info>
+
+### Login as a Data Owner
+
+If you're hosting datasets and approving jobs:
+
+```python
+import syft_client as sc
+
+# Login as a Data Owner
+client = sc.login_do(
+    email="owner@example.com",
+    token_path="~/.syft/token.json"
+)
+```
+
+<Note>
+The main difference: `login_do()` creates job execution infrastructure, while `login_ds()` is optimized for browsing and submitting jobs.
+</Note>
+
+## Connect with a peer
+
+To collaborate, Data Scientists request access to Data Owners:
+
+<Steps>
+  <Step title="Data Scientist requests access">
+    ```python
+    # Request access to a Data Owner
+    client.add_peer("owner@example.com")
+    ```
+  </Step>
+  
+  <Step title="Data Owner approves the request">
+    ```python
+    # As the Data Owner, load and view pending requests
+    client.load_peers()
+    print(client.peers)
+    
+    # Approve a specific request
+    client.approve_peer_request("scientist@example.com")
+    ```
+  </Step>
+  
+  <Step title="Both sync to see updated peer list">
+    ```python
+    # Sync to get latest changes
+    client.sync()
+    
+    # View all peers
+    print(client.peers)
+    ```
+  </Step>
+</Steps>
+
+## Submit your first job
+
+Now that you're connected, submit a simple Python job:
+
+<CodeGroup>
+```python analysis.py
+# Save this as analysis.py
+import pandas as pd
+import sys
+
+print("Hello from Syft Client!")
+print(f"Python version: {sys.version}")
+print(f"Pandas version: {pd.__version__}")
+
+# Job output will be automatically synced back
+with open("output.txt", "w") as f:
+    f.write("Job completed successfully!")
+```
+
+```python Submit the job
+import syft_client as sc
+
+client = sc.login_ds(
+    email="scientist@example.com",
+    token_path="~/.syft/token.json"
+)
+
+# Submit the Python job
+client.submit_python_job(
+    user="owner@example.com",
+    code_path="analysis.py",
+    job_name="First Analysis",
+    dependencies=["pandas"]
+)
+
+print("Job submitted! Waiting for approval...")
+```
+</CodeGroup>
+
+## Approve and execute jobs (Data Owner)
+
+As the Data Owner, approve and run the submitted job:
+
+```python
+import syft_client as sc
+
+client = sc.login_do(
+    email="owner@example.com",
+    token_path="~/.syft/token.json"
+)
+
+# View all jobs
+print(client.jobs)
+
+# Approve a job by accessing it
+job = client.jobs[0]
+job.approve()
+
+# Process all approved jobs
+client.process_approved_jobs(
+    stream_output=True,  # See output in real-time
+    share_outputs_with_submitter=True  # Share results back
+)
+```
+
+<Note>
+Jobs run in isolated virtual environments with automatic dependency installation using `uv`.
+</Note>
+
+## Check job results
+
+After execution, the Data Scientist can access results:
+
+```python
+import syft_client as sc
+
+client = sc.login_ds(
+    email="scientist@example.com",
+    token_path="~/.syft/token.json"
+)
+
+# Sync to get latest results
+client.sync()
+
+# View job status
+print(client.jobs)
+
+# Access job results (if shared)
+job = client.jobs[0]
+if job.status == "done":
+    output_file = job.location / "output.txt"
+    if output_file.exists():
+        print(output_file.read_text())
+```
+
+## What's next?
+
+<CardGroup cols={2}>
+  <Card
+    title="Work with Datasets"
+    icon="database"
+    href="/api/datasets/dataset-manager"
+  >
+    Learn how to create, share, and download datasets
+  </Card>
+  <Card
+    title="Advanced Job Submission"
+    icon="rocket"
+    href="/api/jobs/job-client"
+  >
+    Submit entire project folders with dependencies
+  </Card>
+  <Card
+    title="Manage Permissions"
+    icon="shield"
+    href="/concepts/permissions"
+  >
+    Control file access with the declarative permission system
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api/client/syftbox-manager"
+  >
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

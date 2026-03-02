@@ -1,0 +1,366 @@
+---
+title: Notification System
+description: Email notifications for job and peer events via Gmail API
+---
+
+## Overview
+
+The notification system sends automated email alerts for SyftBox events:
+- New job submissions
+- Job approvals and completions
+- Peer connection requests
+- Peer request approvals
+
+## Gmail Integration
+
+### Authentication
+
+```python
+from syft_client.notifications import GmailAuth
+
+auth = GmailAuth()
+credentials = auth.setup_auth('~/.syft-creds/credentials.json')
+```
+
+**OAuth Scopes**:
+- `https://www.googleapis.com/auth/gmail.send` - Send emails on behalf of user
+
+### GmailAuth
+
+<ParamField path="setup_auth" type="method">
+  One-time OAuth2 authentication setup
+  
+  **Parameters**:
+  - `credentials_path: Path` - Path to Google Cloud credentials.json
+  
+  **Returns**: `Credentials` - Google OAuth credentials object
+  
+  Opens browser for OAuth consent flow, saves token for future use.
+</ParamField>
+
+<ParamField path="load_credentials" type="method">
+  Load and refresh existing credentials
+  
+  **Parameters**:
+  - `token_path: Path` - Path to saved Gmail token
+  
+  **Returns**: `Credentials` - Valid credentials (auto-refreshes if expired)
+</ParamField>
+
+### Obtaining credentials.json
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing
+3. Enable Gmail API
+4. Create OAuth 2.0 Client ID (Desktop app type)
+5. Download credentials as `credentials.json`
+6. Place at `~/.syft-creds/credentials.json`
+
+## Email Sender
+
+### GmailSender
+
+```python
+from syft_client.notifications import GmailSender
+from syft_client.notifications import GmailAuth
+
+auth = GmailAuth()
+creds = auth.load_credentials('~/.syft-creds/gmail_token.json')
+sender = GmailSender(creds, use_html=True)
+```
+
+<ParamField path="__init__" type="constructor">
+  Initialize Gmail sender
+  
+  **Parameters**:
+  - `credentials: Credentials` - Google OAuth credentials
+  - `use_html: bool = True` - Send HTML emails (falls back to plain text)
+</ParamField>
+
+### Job Notifications
+
+<ParamField path="notify_new_job" type="method">
+  Notify Data Owner about new job submission
+  
+  **Parameters**:
+  - `do_email: str` - Data Owner email
+  - `job_name: str` - Name of the job
+  - `submitter: str` - Data Scientist email
+  - `timestamp: Optional[datetime]` - Submission time
+  - `job_url: Optional[str]` - URL to view job
+  
+  **Returns**: `bool` - True if sent successfully
+  
+  ```python
+  sender.notify_new_job(
+      do_email="owner@example.com",
+      job_name="income_prediction",
+      submitter="scientist@example.com"
+  )
+  ```
+</ParamField>
+
+<ParamField path="notify_job_approved" type="method">
+  Notify Data Scientist that their job was approved
+  
+  **Parameters**:
+  - `ds_email: str` - Data Scientist email
+  - `job_name: str` - Name of approved job
+  - `job_url: Optional[str]` - URL to view job
+  
+  **Returns**: `bool` - True if sent successfully
+</ParamField>
+
+<ParamField path="notify_job_executed" type="method">
+  Notify Data Scientist that their job completed
+  
+  **Parameters**:
+  - `ds_email: str` - Data Scientist email
+  - `job_name: str` - Name of completed job
+  - `duration: Optional[int]` - Execution time in seconds
+  - `results_url: Optional[str]` - URL to download results
+  
+  **Returns**: `bool` - True if sent successfully
+</ParamField>
+
+### Peer Notifications
+
+<ParamField path="notify_new_peer_request_to_do" type="method">
+  Notify Data Owner about new peer request
+  
+  **Parameters**:
+  - `do_email: str` - Data Owner email
+  - `ds_email: str` - Data Scientist email
+  - `peer_url: Optional[str]` - URL to review request
+  
+  **Returns**: `bool` - True if sent successfully
+</ParamField>
+
+<ParamField path="notify_peer_request_sent" type="method">
+  Notify Data Scientist that their request was sent
+  
+  **Parameters**:
+  - `ds_email: str` - Data Scientist email
+  - `do_email: str` - Data Owner email
+  
+  **Returns**: `bool` - True if sent successfully
+</ParamField>
+
+<ParamField path="notify_peer_request_granted" type="method">
+  Notify Data Scientist that their peer request was accepted
+  
+  **Parameters**:
+  - `ds_email: str` - Data Scientist email
+  - `do_email: str` - Data Owner email
+  
+  **Returns**: `bool` - True if sent successfully
+</ParamField>
+
+### Generic Email
+
+<ParamField path="send_email" type="method">
+  Send custom email with HTML and plain text
+  
+  **Parameters**:
+  - `to_email: str` - Recipient email
+  - `subject: str` - Email subject
+  - `body_text: str` - Plain text body (fallback)
+  - `body_html: Optional[str]` - HTML body (preferred)
+  
+  **Returns**: `bool` - True if sent successfully
+  
+  ```python
+  sender.send_email(
+      to_email="user@example.com",
+      subject="Custom Alert",
+      body_text="This is a plain text message",
+      body_html="<h1>This is HTML</h1>"
+  )
+  ```
+</ParamField>
+
+## Email Templates
+
+### TemplateRenderer
+
+Renders Jinja2 templates for HTML emails.
+
+```python
+from syft_client.notifications import TemplateRenderer
+
+renderer = TemplateRenderer()
+html = renderer.render('emails/new_job.html', {
+    'job_name': 'analysis_job',
+    'submitter': 'scientist@example.com',
+    'timestamp': datetime.now()
+})
+```
+
+<ParamField path="__init__" type="constructor">
+  **Parameters**:
+  - `templates_dir: Optional[Path]` - Custom templates directory (defaults to built-in)
+</ParamField>
+
+<ParamField path="render" type="method">
+  Render template with context data
+  
+  **Parameters**:
+  - `template_name: str` - Template file name (e.g., "emails/new_job.html")
+  - `context: dict` - Template variables
+  
+  **Returns**: `str` - Rendered HTML
+</ParamField>
+
+### Built-in Templates
+
+- `emails/new_job.html` - New job notification
+- `emails/job_approved.html` - Job approval notification
+- `emails/job_executed.html` - Job completion notification
+- `emails/new_peer_request.html` - Peer request notification
+- `emails/peer_granted.html` - Peer approval notification
+
+### Template Filters
+
+```jinja2
+{{ timestamp|datetime }}  {# Format: January 15, 2024 at 03:30 PM #}
+{{ duration|duration }}    {# Format: 2 hours 15 minutes 30 seconds #}
+```
+
+## State Management
+
+### JsonStateManager
+
+Tracks notification history to prevent duplicate emails.
+
+```python
+from syft_client.notifications import JsonStateManager
+
+state = JsonStateManager('~/.syft-creds/state.json')
+
+# Check if already notified
+if not state.was_notified('job_123', 'new'):
+    sender.notify_new_job(...)
+    state.mark_notified('job_123', 'new')
+```
+
+<ParamField path="__init__" type="constructor">
+  **Parameters**:
+  - `state_file: Path` - Path to JSON state file
+</ParamField>
+
+<ParamField path="was_notified" type="method">
+  Check if entity was already notified
+  
+  **Parameters**:
+  - `entity_id: str` - Unique identifier (job name, peer email)
+  - `event_type: str` - Event type ("new", "approved", "executed")
+  
+  **Returns**: `bool` - True if already notified
+</ParamField>
+
+<ParamField path="mark_notified" type="method">
+  Mark entity as notified
+  
+  **Parameters**:
+  - `entity_id: str` - Unique identifier
+  - `event_type: str` - Event type
+</ParamField>
+
+<ParamField path="get_data" type="method">
+  Get arbitrary data from state
+  
+  **Parameters**:
+  - `key: str` - Data key
+  - `default: Optional[Any]` - Default if key doesn't exist
+  
+  **Returns**: `Any` - Stored value
+</ParamField>
+
+<ParamField path="set_data" type="method">
+  Store arbitrary data in state
+  
+  **Parameters**:
+  - `key: str` - Data key
+  - `value: Any` - JSON-serializable value
+</ParamField>
+
+## Configuration
+
+### syft-bg Configuration
+
+Stored at `~/.syft-creds/config.yaml`:
+
+```yaml
+do_email: owner@example.com
+syftbox_root: ~/SyftBox
+
+notify:
+  interval: 30  # Check interval in seconds
+  monitor_jobs: true
+  monitor_peers: true
+```
+
+### CLI Commands
+
+```bash
+# Initialize notification service
+syft-bg init --email user@example.com
+
+# Enable specific notifications
+syft-bg init --notify-jobs --notify-peers
+
+# Start background service
+syft-bg start
+
+# View service status
+syft-bg status
+
+# View logs
+syft-bg logs notify
+syft-bg logs notify -f  # Follow logs
+
+# Stop service
+syft-bg stop
+```
+
+## Timeout Configuration
+
+Gmail API requests have a 2-minute timeout:
+
+```python
+# From gmail_sender.py
+GOOGLE_API_TIMEOUT = 120  # seconds
+```
+
+Prevents indefinite hangs on network issues.
+
+## Error Handling
+
+```python
+try:
+    success = sender.notify_new_job(
+        do_email="owner@example.com",
+        job_name="analysis",
+        submitter="scientist@example.com"
+    )
+    
+    if not success:
+        print("Failed to send notification")
+except Exception as e:
+    print(f"Error: {e}")
+```
+
+Notification methods return `False` on failure rather than raising exceptions.
+
+## Best Practices
+
+1. **Always use state management** - Prevents duplicate notifications
+2. **Enable HTML emails** - Better user experience with templates
+3. **Set reasonable intervals** - 30s for notifications is recommended
+4. **Monitor logs** - Use `syft-bg logs notify -f` to debug issues
+5. **Handle OAuth expiry** - Credentials auto-refresh if refresh token is valid
+
+## See Also
+
+- [Monitoring Services](/api/background/monitoring) - Job and peer monitors
+- [Auto-Approval](/api/background/auto-approval) - Automatic approval rules

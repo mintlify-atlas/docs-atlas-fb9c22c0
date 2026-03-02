@@ -1,0 +1,314 @@
+---
+title: syft-perm
+description: User-friendly permission API for SyftBox datasites
+---
+
+`syft-perm` provides a simple, intuitive API for managing file and folder permissions in SyftBox. It's built on top of [syft-permissions](/packages/syft-permissions) and offers a Pythonic interface for common permission operations.
+
+## Installation
+
+```bash
+pip install syft-perm
+```
+
+## When to Use
+
+Use `syft-perm` when you need to:
+
+- Grant or revoke access to files and folders
+- Check who has access to your data
+- Share data with specific users or teams
+- Manage permissions in Jupyter notebooks or scripts
+- Browse and filter files by permission level
+
+## Quick Start
+
+```python
+import syft_perm as sp
+
+# Open files and folders
+file = sp.open("data.csv")
+folder = sp.open("my_project/")
+remote = sp.open("syft://alice@datasite.org/data.csv")
+
+# Grant permissions
+file.grant_read_access("bob@company.com")
+file.grant_write_access("team@company.com")
+file.grant_admin_access("admin@company.com")
+
+# Revoke permissions
+file.revoke_read_access("bob@company.com")
+
+# Check permissions
+if file.has_read_access("bob@company.com"):
+    print("Bob can read this file")
+
+# Explain permissions
+explanation = file.explain_permissions("bob@company.com")
+print(explanation)
+```
+
+## API Reference
+
+### Main Exports
+
+```python
+from syft_perm import (
+    open,                  # Open files or folders
+    files,                 # Browse files
+    folders,               # Browse folders
+    files_and_folders,     # Browse both
+    SyftFile,             # File object
+    SyftFolder,           # Folder object
+    FilesBrowser,         # File browser API
+    PermissionExplanation, # Permission explanation
+    SyftPermContext,      # Context manager
+)
+```
+
+## Working with Files
+
+### Opening Files
+
+```python
+import syft_perm as sp
+
+# Local files
+file = sp.open("data.csv")
+file = sp.open("/absolute/path/to/data.csv")
+
+# Remote files
+remote_file = sp.open("syft://alice@datasite.org/data.csv")
+```
+
+### Granting Access
+
+Each permission level includes all lower levels:
+
+```python
+file = sp.open("data.csv")
+
+# Read access - can view the file
+file.grant_read_access("scientist@example.com")
+
+# Create access - can view + create new files
+file.grant_create_access("analyst@example.com")
+
+# Write access - can view + create + modify
+file.grant_write_access("team@example.com")
+
+# Admin access - full control including permission management
+file.grant_admin_access("owner@example.com")
+```
+
+### Revoking Access
+
+```python
+# Remove all access
+file.revoke_read_access("bob@company.com")
+
+# Remove create access (keeps read)
+file.revoke_create_access("alice@company.com")
+
+# Remove write access (keeps read and create)
+file.revoke_write_access("team@company.com")
+
+# Remove admin privileges (keeps read, create, and write)
+file.revoke_admin_access("admin@company.com")
+```
+
+### Checking Permissions
+
+```python
+file = sp.open("data.csv")
+
+# Check specific permission levels
+if file.has_read_access("bob@company.com"):
+    print("Bob can read this file")
+
+if file.has_create_access("alice@company.com"):
+    print("Alice can create new files")
+
+if file.has_write_access("team@company.com"):
+    print("Team can modify this file")
+
+if file.has_admin_access("admin@company.com"):
+    print("Admin has full control")
+```
+
+### Understanding Permissions
+
+```python
+# Get detailed explanation of permissions
+explanation = file.explain_permissions("bob@company.com")
+print(explanation)
+
+# Example output:
+# "bob@company.com has READ access to data.csv
+#  Granted by rule in /path/to/syftperm.yaml
+#  Pattern: **/*.csv"
+```
+
+## Working with Folders
+
+```python
+import syft_perm as sp
+
+# Open a folder
+folder = sp.open("my_project/")
+
+# Grant permissions to folder (applies to all contents)
+folder.grant_read_access("team@company.com")
+folder.grant_write_access("owner@company.com")
+
+# Check folder permissions
+if folder.has_write_access("owner@company.com"):
+    print("Owner can modify files in this folder")
+```
+
+## Browsing Files
+
+### Get All Files
+
+```python
+import syft_perm as sp
+
+# Get all files and folders
+all_items = sp.files_and_folders.all()
+
+# Get only files
+files_only = sp.files.all()
+
+# Get only folders
+folders_only = sp.folders.all()
+```
+
+### Pagination
+
+```python
+# Get first 10 files
+paginated = sp.files.get(limit=10, offset=0)
+
+# Get next 10 files
+next_page = sp.files.get(limit=10, offset=10)
+
+# Using slice notation
+first_five = sp.files[0:5]
+```
+
+### Filtering
+
+```python
+# Find files where I'm the admin
+my_admin_files = sp.files.search(admin="me@datasite.org")
+
+# Find files with read access for a specific user
+shared_files = sp.files.search(read="colleague@example.com")
+
+# Find files with write access
+writable_files = sp.files.search(write="team@company.com")
+```
+
+## Moving Files
+
+```python
+import syft_perm as sp
+
+file = sp.open("data.csv")
+
+# Move file and preserve its permissions
+new_file = file.move_file_and_its_permissions("archive/data.csv")
+
+print(f"File moved to {new_file}")
+```
+
+## Permission Hierarchy
+
+Permissions are hierarchical - higher levels include all lower permissions:
+
+1. **READ**: View file contents
+2. **CREATE**: READ + create new files in folders
+3. **WRITE**: READ + CREATE + modify existing files
+4. **ADMIN**: READ + CREATE + WRITE + manage permissions
+
+```python
+# Granting write access automatically includes read and create
+file.grant_write_access("user@example.com")
+
+# These will all return True:
+file.has_read_access("user@example.com")   # True
+file.has_create_access("user@example.com") # True
+file.has_write_access("user@example.com")  # True
+file.has_admin_access("user@example.com")  # False (not granted)
+```
+
+## Using with Context Manager
+
+```python
+from syft_perm import SyftPermContext
+from pathlib import Path
+
+with SyftPermContext(root_path=Path("/path/to/datasite")) as ctx:
+    file = ctx.open("data.csv")
+    file.grant_read_access("scientist@example.com")
+```
+
+## Common Patterns
+
+### Share a Dataset with a Team
+
+```python
+import syft_perm as sp
+
+team_members = [
+    "alice@company.com",
+    "bob@company.com",
+    "charlie@company.com"
+]
+
+dataset = sp.open("datasets/customer_data.csv")
+
+for member in team_members:
+    dataset.grant_read_access(member)
+    print(f"Granted access to {member}")
+```
+
+### Audit File Permissions
+
+```python
+import syft_perm as sp
+
+# Find all files I've given admin access to
+admin_files = sp.files.search(admin="trusted@example.com")
+
+for file in admin_files:
+    print(f"File: {file}")
+    explanation = file.explain_permissions("trusted@example.com")
+    print(explanation)
+    print("---")
+```
+
+### Temporary Access
+
+```python
+import syft_perm as sp
+
+file = sp.open("sensitive_data.csv")
+
+# Grant temporary access
+file.grant_read_access("contractor@example.com")
+
+# ... contractor does their work ...
+
+# Revoke access
+file.revoke_read_access("contractor@example.com")
+```
+
+## Dependencies
+
+- `syft-permissions` - Core ACL permission engine
+
+## Related Packages
+
+- [syft-permissions](/packages/syft-permissions) - Low-level permission engine
+- [syft-job](/packages/syft-job) - Job system that uses permissions

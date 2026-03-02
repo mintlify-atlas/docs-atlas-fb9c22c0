@@ -1,0 +1,310 @@
+---
+title: Installation
+description: Detailed installation guide for Syft Client
+---
+
+## Requirements
+
+- **Python**: 3.10 or higher (3.12 recommended for job execution)
+- **Google Account**: Required for Google Drive sync
+- **Operating System**: Linux, macOS, or Windows
+
+<Note>
+Python 3.12 is used for job execution virtual environments. While Syft Client works with Python 3.10+, jobs will run in Python 3.12 environments.
+</Note>
+
+## Install with pip
+
+The simplest way to install Syft Client:
+
+```bash
+pip install syft-client
+```
+
+This installs the core library and all required dependencies:
+- `google-api-python-client` - Google Drive API
+- `google-auth` and `google-auth-oauthlib` - OAuth authentication
+- `rich` - Terminal UI
+- `pandas` and `pyarrow` - Data handling
+- `pydantic-settings` - Configuration
+- `click` - CLI tools
+- `syft-bg`, `syft-job`, `syft-dataset`, `syft-permissions`, `syft-perm` - Core packages
+
+## Install with uv (recommended)
+
+[`uv`](https://github.com/astral-sh/uv) is a fast Python package installer that's also used for job execution:
+
+<Steps>
+  <Step title="Install uv">
+    ```bash
+    pip install uv
+    ```
+    
+    Or use the standalone installer:
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+  </Step>
+  
+  <Step title="Install Syft Client with uv">
+    ```bash
+    uv pip install syft-client
+    ```
+  </Step>
+</Steps>
+
+<Info>
+`uv` is **significantly faster** than pip and is required for job execution. Installing it now will make your development workflow smoother.
+</Info>
+
+## Optional dependencies
+
+Syft Client has optional packages for specific features:
+
+### Dataset management
+
+Install the datasets package for enhanced dataset operations:
+
+```bash
+pip install syft-client[datasets]
+```
+
+This includes `syft-dataset` for dataset creation, sharing, and management.
+
+### Job execution
+
+Install the job package for advanced job features:
+
+```bash
+pip install syft-client[job]
+```
+
+This includes `syft-job` for job submission and execution.
+
+### All optional dependencies
+
+Install everything:
+
+```bash
+pip install syft-client[all]
+```
+
+<Note>
+Most users won't need optional dependencies since the core packages (`syft-job`, `syft-dataset`) are already included by default. These extras are mainly for future compatibility when we add lazy imports.
+</Note>
+
+## Development installation
+
+For contributing to Syft Client or working with the source code:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/OpenMined/syft-client.git
+    cd syft-client
+    ```
+  </Step>
+  
+  <Step title="Install in editable mode">
+    ```bash
+    uv pip install -e .
+    ```
+    
+    This installs the package in development mode, so changes to the source code are immediately reflected.
+  </Step>
+  
+  <Step title="Install development dependencies (optional)">
+    ```bash
+    # With uv (installs dev and test groups automatically)
+    uv pip install -e ".[all]"
+    
+    # Or manually install test/dev tools
+    pip install pytest pytest-cov black flake8 mypy
+    ```
+  </Step>
+</Steps>
+
+## Verify installation
+
+Confirm Syft Client is installed correctly:
+
+```python
+import syft_client as sc
+
+print(sc.__version__)  # Should print version like "0.1.101"
+```
+
+Or check from the command line:
+
+```bash
+python -c "import syft_client; print(syft_client.__version__)"
+```
+
+## Set up Google Drive credentials
+
+After installation, you'll need OAuth credentials to use Google Drive sync:
+
+<Steps>
+  <Step title="Create a Google Cloud project">
+    1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create a new project (e.g., "My Syft Client")
+    3. Enable the **Google Drive API**:
+       - Navigate to **APIs & Services > Library**
+       - Search for "Google Drive API"
+       - Click **Enable**
+  </Step>
+  
+  <Step title="Create OAuth 2.0 credentials">
+    1. Go to **APIs & Services > Credentials**
+    2. Click **Create Credentials > OAuth client ID**
+    3. Configure the OAuth consent screen if prompted:
+       - Choose **External** user type
+       - Fill in application name (e.g., "Syft Client")
+       - Add your email as a test user
+    4. Select **Desktop app** as the application type
+    5. Name it (e.g., "Syft Client Desktop")
+    6. Click **Create**
+  </Step>
+  
+  <Step title="Download credentials">
+    1. Click the download icon next to your OAuth client
+    2. Save the JSON file to a secure location:
+    
+    ```bash
+    mkdir -p ~/.syft/credentials
+    mv ~/Downloads/client_secret_*.json ~/.syft/credentials/token.json
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+**Security best practices:**
+- Never commit credential files to version control
+- Add `*.json` and `.syft/` to your `.gitignore`
+- Store tokens outside your project directory
+- Use separate credentials for development and production
+</Warning>
+
+## Test your setup
+
+Verify everything works with a test login:
+
+```python
+import syft_client as sc
+
+# Login as a Data Scientist (will open browser for OAuth)
+client = sc.login_ds(
+    email="your.email@example.com",
+    token_path="~/.syft/credentials/token.json"
+)
+
+print(f"Logged in as: {client.email}")
+print(f"SyftBox folder: {client.syftbox_folder}")
+```
+
+<Info>
+The first login will:
+1. Open your browser for Google OAuth authorization
+2. Ask you to grant Google Drive permissions
+3. Create a SyftBox folder in your home directory
+4. Initialize sync infrastructure
+</Info>
+
+## Troubleshooting
+
+### ModuleNotFoundError: No module named 'syft_client'
+
+Make sure you're in the correct Python environment:
+
+```bash
+# Check Python version
+python --version
+
+# Check installed packages
+pip list | grep syft
+
+# Reinstall if needed
+pip install --force-reinstall syft-client
+```
+
+### Google OAuth errors
+
+If you see OAuth errors:
+
+1. Verify the Google Drive API is enabled in your Cloud Console
+2. Check that your OAuth consent screen is configured
+3. Ensure you're using a **Desktop app** credential (not Web or Mobile)
+4. Try deleting and recreating your credentials
+
+### Permission errors on Windows
+
+If you see permission errors when creating files:
+
+```bash
+# Run as administrator or adjust Python permissions
+# Or install in user directory:
+pip install --user syft-client
+```
+
+### Import errors for workspace packages
+
+If you get import errors for `syft_job`, `syft_dataset`, etc.:
+
+```bash
+# These should be installed automatically, but can reinstall:
+uv pip install syft-client --force-reinstall
+```
+
+## Workspace structure
+
+Syft Client is a monorepo with multiple packages:
+
+```
+syft-client/
+├── syft_client/           # Main client library
+│   ├── __init__.py        # Exports login(), login_ds(), login_do()
+│   └── sync/              # Sync engine
+├── packages/
+│   ├── syft-bg/           # Background services (TUI dashboard)
+│   ├── syft-job/          # Job submission and execution
+│   ├── syft-dataset/      # Dataset management
+│   ├── syft-permissions/  # Permission engine
+│   ├── syft-perm/         # User-facing permission API
+│   └── syft-notebook-ui/  # Jupyter display utilities
+└── pyproject.toml         # Main package configuration
+```
+
+When you install `syft-client`, all workspace packages are automatically installed.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get started with your first login and job submission
+  </Card>
+  <Card
+    title="Authentication Guide"
+    icon="key"
+    href="/guides/authentication"
+  >
+    Learn how to set up OAuth and manage tokens
+  </Card>
+  <Card
+    title="API Reference"
+    icon="book"
+    href="/api/client/login"
+  >
+    Explore the complete API documentation
+  </Card>
+  <Card
+    title="Notebooks Guide"
+    icon="code"
+    href="/guides/notebooks"
+  >
+    Learn how to use Syft Client in Jupyter and Colab
+  </Card>
+</CardGroup>

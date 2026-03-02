@@ -1,0 +1,567 @@
+---
+title: Data Owner Guide
+description: Complete guide for data owners managing datasets, approving jobs, and controlling access
+---
+
+# Data Owner Guide
+
+This guide covers everything you need to know as a data owner using Syft Client to securely share datasets and manage computational jobs.
+
+## Overview
+
+As a data owner, you'll use Syft Client to:
+- Host private datasets with mock data previews
+- Approve or reject peer connection requests
+- Review and approve computational jobs
+- Execute jobs on your private data
+- Share results with data scientists
+
+## Getting Started
+
+### Login
+
+Use `login_do()` to authenticate as a data owner:
+
+```python
+import syft_client as sc
+
+# For Google Colab (auto-detects your Google account)
+client = sc.login_do()
+
+# For Jupyter (requires token file)
+client = sc.login_do(
+    email="your.email@gmail.com",
+    token_path="path/to/token_do.json"
+)
+```
+
+<Note>
+The `login_do()` function configures your client as a data owner with additional permissions for dataset management and job execution.
+</Note>
+
+### Login Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `email` | `str \| None` | `None` | Your email address. Auto-detected in Colab. |
+| `sync` | `bool` | `True` | Sync with Google Drive on login |
+| `load_peers` | `bool` | `True` | Load peer connections on login |
+| `token_path` | `str \| Path \| None` | `None` | Path to OAuth token file (Jupyter only) |
+
+**Source:** `syft_client/sync/login.py:56-89`
+
+## Managing Peer Connections
+
+### View Peer Requests
+
+```python
+# See all peers (approved and pending)
+peers = client.peers
+print(peers)
+
+# Filter by state
+for peer in peers:
+    if peer.is_pending:
+        print(f"Pending: {peer.email}")
+    elif peer.is_approved:
+        print(f"Approved: {peer.email}")
+```
+
+### Approve Peer Requests
+
+<Steps>
+  <Step title="Load latest peer requests">
+    ```python
+    client.load_peers()
+    peers = client.peers
+    ```
+  </Step>
+  
+  <Step title="Review pending requests">
+    ```python
+    pending = [p for p in peers if p.is_pending]
+    for peer in pending:
+        print(f"Request from: {peer.email}")
+    ```
+  </Step>
+  
+  <Step title="Approve or reject">
+    ```python
+    # Approve a peer
+    client.approve_peer_request("scientist@example.com")
+    
+    # Reject a peer
+    client.reject_peer_request("untrusted@example.com")
+    ```
+  </Step>
+</Steps>
+
+**Source:** `syft_client/sync/syftbox_manager.py:765-808`
+
+<Note>
+When you approve a peer, they automatically gain access to:
+- Datasets you've shared with "any" permission
+- The ability to submit jobs to your datasite
+</Note>
+
+## Creating and Managing Datasets
+
+### Create a Dataset
+
+```python
+# Create dataset with mock and private data
+client.create_dataset(
+    name="patient-records",
+    mock_path="/path/to/mock_data.csv",
+    private_path="/path/to/real_data.csv",
+    summary="Anonymized patient records for research",
+    readme_path="/path/to/README.md",
+    tags=["healthcare", "research"],
+    users=["scientist@example.com"]  # Specific users
+)
+```
+
+### Dataset Permission Models
+
+#### Share with Specific Users
+
+```python
+# Share with a list of email addresses
+client.create_dataset(
+    name="restricted-data",
+    mock_path="mock.csv",
+    private_path="private.csv",
+    summary="Restricted access dataset",
+    users=["scientist1@example.com", "scientist2@example.com"]
+)
+```
+
+#### Share with All Approved Peers
+
+```python
+# Share with anyone who has been approved
+client.create_dataset(
+    name="public-research-data",
+    mock_path="mock.csv",
+    private_path="private.csv",
+    summary="Publicly available research data",
+    users="any"  # Available to all approved peers
+)
+```
+
+**Source:** `syft_client/sync/syftbox_manager.py:920-1005`
+
+### Upload Private Data Separately
+
+For sensitive datasets, you can upload private data to a separate owner-only collection:
+
+```python
+client.create_dataset(
+    name="sensitive-data",
+    mock_path="mock.csv",
+    private_path="private.csv",
+    summary="Sensitive dataset with separate private storage",
+    users="any",
+    upload_private=True  # Stores private data separately
+)
+```
+
+<Warning>
+When `upload_private=True`, private data is stored in a separate collection folder with owner-only access, providing an extra layer of security.
+</Warning>
+
+**Source:** Tests in `tests/unit/test_dataset_upload_private.py`
+
+### Share Existing Datasets
+
+Update permissions on existing datasets:
+
+```python
+# Share with additional users
+client.share_dataset(
+    tag="patient-records",
+    users=["newscientist@example.com"]
+)
+
+# Make available to all approved peers
+client.share_dataset(
+    tag="patient-records",
+    users="any"
+)
+```
+
+**Source:** `syft_client/sync/syftbox_manager.py:1047-1099`
+
+### Delete Datasets
+
+```python
+client.delete_dataset(name="old-dataset")
+```
+
+### List Your Datasets
+
+```python
+# View all datasets you've created
+datasets = client.datasets.get_all()
+for dataset in datasets:
+    print(f"{dataset.name}: {dataset.summary}")
+```
+
+## Managing Jobs
+
+### View Submitted Jobs
+
+```python
+# See all jobs from data scientists
+jobs = client.jobs
+
+for job in jobs:
+    print(f"Job: {job.name}")
+    print(f"Status: {job.status}")
+    print(f"Submitted by: {job.submitted_by}")
+    print(f"Submitted at: {job.submitted_at}")
+    print("---")
+```
+
+### Review and Approve Jobs
+
+<Steps>
+  <Step title="Sync to get latest jobs">
+    ```python
+    client.sync()
+    jobs = client.jobs
+    ```
+  </Step>
+  
+  <Step title="Review pending jobs">
+    ```python
+    pending_jobs = [j for j in jobs if j.status == "pending"]
+    
+    for job in pending_jobs:
+        print(f"Job: {job.name}")
+        print(f"From: {job.submitted_by}")
+        
+        # Review the code
+        code_path = job.job_dir / "analysis.py"
+        with open(code_path, "r") as f:
+            print(f.read())
+    ```
+  </Step>
+  
+  <Step title="Approve or reject">
+    ```python
+    # Approve a job
+    job = jobs[0]
+    job.approve()
+    
+    # Or reject with a reason
+    job.reject(reason="Code accesses unauthorized resources")
+    ```
+  </Step>
+</Steps>
+
+### Execute Approved Jobs
+
+```python
+# Process all approved jobs
+client.process_approved_jobs(
+    stream_output=True,           # Show real-time output
+    timeout=300,                  # 5 minute timeout per job
+    share_outputs_with_submitter=True,  # Share results
+    share_logs_with_submitter=True      # Share execution logs
+)
+```
+
+#### Execution Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `stream_output` | `bool` | `True` | Stream output in real-time vs. capture at end |
+| `timeout` | `int \| None` | `300` | Timeout in seconds per job |
+| `force_execution` | `bool` | `False` | Execute jobs even from incompatible client versions |
+| `share_outputs_with_submitter` | `bool` | `False` | Grant submitter read access to outputs |
+| `share_logs_with_submitter` | `bool` | `False` | Grant submitter read access to logs |
+
+**Source:** `syft_client/sync/syftbox_manager.py:823-890`
+
+### Version Compatibility
+
+By default, jobs from data scientists with incompatible Syft Client versions are skipped:
+
+```python
+# Force execution of all jobs (bypass version checks)
+client.process_approved_jobs(force_execution=True)
+```
+
+<Warning>
+Use `force_execution=True` with caution. Jobs from incompatible versions may fail or produce unexpected results.
+</Warning>
+
+## Advanced Job Management
+
+### Job Execution Flow
+
+When you run `process_approved_jobs()`, the following happens:
+
+1. **Sync** - Pull latest job submissions from Google Drive
+2. **Version Check** - Verify submitter's client version is compatible
+3. **Environment Setup** - Create isolated virtual environment
+4. **Dependency Installation** - Install required packages
+5. **Code Execution** - Run the job script
+6. **Result Storage** - Save outputs to `outputs/` folder
+7. **Sync Results** - Upload results to Google Drive (if sharing enabled)
+
+### Share Job Results Manually
+
+You can also share results after execution:
+
+```python
+# Execute jobs without auto-sharing
+client.process_approved_jobs(
+    share_outputs_with_submitter=False,
+    share_logs_with_submitter=False
+)
+
+# Review results, then share manually
+client.job_runner.share_job_results(
+    job_name="Analysis Job",
+    share_outputs=True,
+    share_logs=True
+)
+```
+
+**Source:** Test examples in `tests/unit/test_sync_manager.py:545-558`
+
+### Job Directory Structure
+
+Executed jobs create the following structure:
+
+```
+SyftBox_{your_email}/
+└── your.email@gmail.com/
+    └── jobs/
+        └── scientist@example.com/
+            └── Analysis Job/
+                ├── config.yaml      # Job metadata
+                ├── run.sh          # Execution script
+                ├── analysis.py     # Submitted code
+                ├── outputs/        # Computation results
+                │   └── result.json
+                └── logs/           # Execution logs
+                    ├── stdout.txt
+                    └── stderr.txt
+```
+
+## Performance Optimization
+
+### Checkpoints
+
+Checkpoints speed up sync operations by creating snapshots of your datasite state:
+
+```python
+# Manually create a checkpoint
+client.create_checkpoint()
+
+# Check if checkpoint is needed (>= 50 events since last checkpoint)
+if client.should_create_checkpoint(threshold=50):
+    client.create_checkpoint()
+
+# Auto-checkpoint during sync (default behavior)
+client.sync(auto_checkpoint=True, checkpoint_threshold=50)
+```
+
+<Note>
+Checkpoints are automatically created every 50 events during `sync()` operations. This significantly reduces initial sync time for new peers.
+</Note>
+
+**Source:** `syft_client/sync/syftbox_manager.py:1246-1294`
+
+### Disable Auto-Sync
+
+For better performance when making multiple API calls:
+
+```python
+import os
+os.environ["PRE_SYNC"] = "false"
+
+# Now these won't auto-sync
+datasets = client.datasets.get_all()
+jobs = client.jobs
+
+# Manually sync when ready
+client.sync()
+```
+
+## Best Practices
+
+### Dataset Security
+
+1. **Always use mock data** - Never include real private data in mock files
+2. **Review job code carefully** - Ensure jobs only access authorized datasets
+3. **Use specific permissions** - Prefer explicit user lists over "any"
+4. **Enable private upload** - Use `upload_private=True` for highly sensitive data
+5. **Monitor access** - Regularly review approved peers and revoke access when needed
+
+### Job Review Checklist
+
+Before approving a job, verify:
+
+- [ ] Code only accesses datasets the submitter has permission for
+- [ ] No attempts to access network resources (if prohibited)
+- [ ] No attempts to access system files outside the job directory
+- [ ] Dependencies are from trusted sources
+- [ ] Output volume is reasonable (won't fill disk)
+- [ ] Execution time is acceptable (set appropriate timeout)
+
+### Example Job Review Code
+
+```python
+import os
+os.environ["PRE_SYNC"] = "false"  # Faster when reviewing multiple jobs
+
+client.sync()
+jobs = client.jobs
+
+for job in jobs:
+    if job.status == "pending":
+        print(f"\n{'='*60}")
+        print(f"Job: {job.name}")
+        print(f"From: {job.submitted_by}")
+        print(f"Submitted: {job.submitted_at}")
+        print(f"{'='*60}")
+        
+        # Show the code
+        code_files = list(job.job_dir.rglob("*.py"))
+        for code_file in code_files:
+            print(f"\n--- {code_file.name} ---")
+            with open(code_file, "r") as f:
+                print(f.read())
+        
+        # Manual approval decision
+        decision = input("Approve? (y/n): ")
+        if decision.lower() == "y":
+            job.approve()
+            print("✓ Approved")
+        else:
+            reason = input("Rejection reason: ")
+            job.reject(reason=reason)
+            print("✗ Rejected")
+
+# Execute all approved jobs
+client.process_approved_jobs(
+    timeout=300,
+    share_outputs_with_submitter=True,
+    share_logs_with_submitter=True
+)
+```
+
+## Automated Workflows
+
+### Auto-Approve Trusted Peers
+
+For trusted collaborators, you can set up auto-approval:
+
+```python
+TRUSTED_PEERS = [
+    "trusted1@example.com",
+    "trusted2@example.com"
+]
+
+client.load_peers()
+for peer in client.peers:
+    if peer.is_pending and peer.email in TRUSTED_PEERS:
+        client.approve_peer_request(peer.email)
+        print(f"Auto-approved: {peer.email}")
+```
+
+<Warning>
+Auto-approval scripts should be used with extreme caution and only for highly trusted collaborators.
+</Warning>
+
+**Source:** Example script in `scripts/auto_approve_peers_and_share.py`
+
+## Cleanup and Maintenance
+
+### Delete Your Syftbox
+
+To completely remove all Syft data:
+
+```python
+# Delete all Google Drive files, local caches, and folders
+client.delete_syftbox(
+    verbose=True,                    # Show deletion progress
+    broadcast_delete_events=True     # Notify peers of deletion
+)
+```
+
+<Warning>
+This operation is **irreversible** and will delete:
+- All Google Drive files and folders
+- Local SyftBox directory and caches
+- Event history and checkpoints
+
+Peers will be notified that your datasite is being deleted.
+</Warning>
+
+**Source:** `syft_client/sync/syftbox_manager.py:1170-1240`
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PRE_SYNC` | `"true"` | Auto-sync before accessing datasets/jobs/peers |
+| `SYFTCLIENT_TOKEN_PATH` | `None` | Default token path for authentication |
+| `SYFTCLIENT_DEV_MODE` | `False` | Enable development mode features |
+| `SYFT_DEFAULT_JOB_TIMEOUT_SECONDS` | `300` | Default job execution timeout |
+
+## Common Issues
+
+### Peer approval not visible to data scientist
+
+Ensure both parties sync:
+
+```python
+client.approve_peer_request("scientist@example.com")
+client.sync()  # Push approval to Google Drive
+```
+
+The data scientist should also sync:
+```python
+client.sync()  # Pull approval
+```
+
+### Job execution fails with missing dependencies
+
+Check that all dependencies are specified in the job submission:
+
+```python
+# Data scientist should include all dependencies
+client.submit_python_job(
+    user="dataowner@example.com",
+    code_path="analysis.py",
+    dependencies=["pandas==2.0.0", "numpy", "scikit-learn"]
+)
+```
+
+### "Version unknown" warnings when processing jobs
+
+The data scientist's client version couldn't be determined. Either:
+1. Have them upgrade to a newer version of syft-client
+2. Use `force_execution=True` to bypass version checks (use with caution)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Setup" icon="key" href="/guides/authentication">
+    Set up OAuth tokens for Jupyter environments
+  </Card>
+  <Card title="Data Scientist Guide" icon="chart-line" href="/guides/data-scientist">
+    Understand the data scientist workflow
+  </Card>
+  <Card title="Notebooks Guide" icon="book" href="/guides/notebooks">
+    Learn notebook-specific workflows
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/client/login">
+    Explore the full API documentation
+  </Card>
+</CardGroup>

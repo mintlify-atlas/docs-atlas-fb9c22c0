@@ -1,0 +1,231 @@
+---
+title: ACLService
+description: Core service for managing access control lists and permissions
+---
+
+## Overview
+
+`ACLService` is the main entry point for permission management in Syft. It maintains an internal tree structure of permission rules and provides methods to check access, load permissions from the filesystem, and manage rulesets.
+
+## Class Definition
+
+```python
+from syft_permissions import ACLService
+```
+
+### Constructor
+
+<ParamField path="owner" type="str" required>
+  The email address of the datasite owner. The owner has unrestricted access to all resources, bypassing all permission rules.
+</ParamField>
+
+<ParamField path="tree" type="ACLTree" default="ACLTree()">
+  Internal tree structure for storing and querying permission rules. Automatically initialized if not provided.
+</ParamField>
+
+### Example
+
+```python
+from syft_permissions import ACLService
+
+service = ACLService(owner="admin@example.com")
+```
+
+## Methods
+
+### load_permissions_from_filesystem
+
+Scans all permission files under a datasite directory and rebuilds the internal tree structure.
+
+```python
+def load_permissions_from_filesystem(datasite: Path) -> None
+```
+
+<ParamField path="datasite" type="Path" required>
+  Root directory of the datasite to scan. The method will recursively find all `syft.pub.yaml` files.
+</ParamField>
+
+#### Behavior
+
+- Clears the existing permission tree
+- Recursively searches for all files named `syft.pub.yaml` under the datasite directory
+- Loads each ruleset and adds it to the tree with its relative path from the datasite root
+- Normalizes paths so the root directory is represented as an empty string
+
+#### Example
+
+```python
+from pathlib import Path
+from syft_permissions import ACLService
+
+service = ACLService(owner="admin@example.com")
+service.load_permissions_from_filesystem(Path("/data/my-datasite"))
+```
+
+### can_access
+
+Checks whether a user has the requested level of access to a specific path.
+
+```python
+def can_access(request: ACLRequest) -> bool
+```
+
+<ParamField path="request" type="ACLRequest" required>
+  An access request containing the path, access level, and user information.
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  `True` if access is granted, `False` otherwise.
+</ResponseField>
+
+#### Access Logic
+
+1. **Owner Bypass**: If the requesting user is the owner, access is always granted
+2. **Rule Matching**: Finds the nearest ruleset in the tree and evaluates rules by specificity
+3. **Permission File Protection**: Accessing `syft.pub.yaml` files always requires `ADMIN` level access
+4. **No Match**: If no matching rule is found, access is denied
+
+#### Example
+
+```python
+from syft_permissions import ACLService, ACLRequest, AccessLevel, User
+
+service = ACLService(owner="admin@example.com")
+# ... load permissions ...
+
+request = ACLRequest(
+    path="reports/q1.csv",
+    level=AccessLevel.READ,
+    user=User(id="alice@example.com")
+)
+
+if service.can_access(request):
+    print("Access granted")
+else:
+    print("Access denied")
+```
+
+### add_ruleset
+
+Adds or updates a ruleset in the permission tree.
+
+```python
+def add_ruleset(rs: RuleSet) -> None
+```
+
+<ParamField path="rs" type="RuleSet" required>
+  The ruleset to add. The ruleset's `path` field determines its location in the tree.
+</ParamField>
+
+#### Behavior
+
+- Rules within the ruleset are automatically sorted by specificity (most specific first)
+- If a ruleset already exists at the given path, it is replaced
+- The ruleset's `terminal` flag affects tree traversal during access checks
+
+#### Example
+
+```python
+from syft_permissions import ACLService, RuleSet, Rule, Access
+
+service = ACLService(owner="admin@example.com")
+
+ruleset = RuleSet(
+    path="reports",
+    rules=[
+        Rule(pattern="**/*.csv", access=Access(read=["*@company.com"])),
+        Rule(pattern="confidential/**", access=Access(read=["alice@company.com"]))
+    ],
+    terminal=False
+)
+
+service.add_ruleset(ruleset)
+```
+
+### remove_ruleset
+
+Removes a ruleset from the permission tree.
+
+```python
+def remove_ruleset(path: str) -> None
+```
+
+<ParamField path="path" type="str" required>
+  The path of the ruleset to remove (relative to the datasite root).
+</ParamField>
+
+#### Behavior
+
+- Removes the ruleset at the specified path
+- Clears the `terminal` flag for that node
+- If the path doesn't exist, the operation has no effect
+
+#### Example
+
+```python
+from syft_permissions import ACLService
+
+service = ACLService(owner="admin@example.com")
+# ... add rulesets ...
+
+service.remove_ruleset("reports")
+```
+
+## Complete Example
+
+```python
+from pathlib import Path
+from syft_permissions import (
+    ACLService,
+    ACLRequest,
+    AccessLevel,
+    User,
+    RuleSet,
+    Rule,
+    Access
+)
+
+# Initialize service
+service = ACLService(owner="admin@example.com")
+
+# Option 1: Load from filesystem
+service.load_permissions_from_filesystem(Path("/data/my-datasite"))
+
+# Option 2: Add rulesets programmatically
+ruleset = RuleSet(
+    path="",
+    rules=[
+        # Public read access
+        Rule(pattern="public/**", access=Access(read=["*"])),
+        # Company-wide access to reports
+        Rule(pattern="reports/**", access=Access(read=["*@company.com"])),
+        # Per-user private directories
+        Rule(
+            pattern="{{.UserEmail}}/**",
+            access=Access(write=["USER"])
+        ),
+    ]
+)
+service.add_ruleset(ruleset)
+
+# Check access
+def check_user_access(user_email: str, path: str, level: AccessLevel):
+    request = ACLRequest(
+        path=path,
+        level=level,
+        user=User(id=user_email)
+    )
+    return service.can_access(request)
+
+# Example checks
+print(check_user_access("alice@company.com", "reports/q1.csv", AccessLevel.READ))  # True
+print(check_user_access("alice@company.com", "reports/q1.csv", AccessLevel.WRITE))  # False
+print(check_user_access("alice@company.com", "alice@company.com/notes.txt", AccessLevel.WRITE))  # True
+print(check_user_access("admin@example.com", "any/path", AccessLevel.ADMIN))  # True (owner)
+```
+
+## See Also
+
+- [RuleSet](/api/permissions/ruleset) - Define permission rules
+- [ACLRequest](/api/permissions/access-control) - Create access requests
+- [Access](/api/permissions/access-control#access) - Configure access levels

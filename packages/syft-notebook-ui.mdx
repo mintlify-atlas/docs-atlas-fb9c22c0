@@ -1,0 +1,309 @@
+---
+title: syft-notebook-ui
+description: UI utilities for displaying data in Jupyter notebooks
+---
+
+`syft-notebook-ui` provides rich display utilities for Jupyter notebooks, making it easy to visualize data structures, directory trees, and other information with beautiful formatting.
+
+## Installation
+
+```bash
+pip install syft-notebook-ui
+```
+
+## When to Use
+
+Use `syft-notebook-ui` when you need to:
+
+- Display lists and dictionaries as formatted tables in notebooks
+- Visualize directory structures as trees
+- Show file and folder hierarchies with icons
+- Display permission files (`syftperm.yaml`) with special formatting
+- Create rich, readable output in Jupyter environments
+
+## API Reference
+
+### Main Exports
+
+```python
+from syft_notebook_ui import (
+    display,    # Convert objects to displayable format
+    show_dir,   # Display directory tree
+)
+```
+
+## Basic Usage
+
+### Displaying Data Structures
+
+```python
+from syft_notebook_ui import display
+
+# Display a list as a table
+data = [
+    {"name": "Alice", "age": 30, "role": "Data Scientist"},
+    {"name": "Bob", "age": 25, "role": "Engineer"},
+    {"name": "Charlie", "age": 35, "role": "Manager"},
+]
+
+display(data)
+# Renders as a formatted table
+```
+
+### Displaying Dictionaries
+
+```python
+from syft_notebook_ui import display
+
+config = {
+    "email": "user@example.com",
+    "syftbox_root": "/home/user/SyftBox",
+    "notify_jobs": True,
+    "approve_peers": False,
+}
+
+display(config)
+# Renders as a formatted table with keys and values
+```
+
+### Visualizing Directory Trees
+
+```python
+from syft_notebook_ui import show_dir
+from pathlib import Path
+
+# Show directory structure
+show_dir(Path("~/SyftBox").expanduser())
+```
+
+**Example output:**
+
+```
+📁 SyftBox
+├── 📁 private
+│   ├── 📄 config.json
+│   └── 📁 datasets
+│       └── 📄 data.csv
+└── 📁 user@example.com
+    └── 📁 public
+        ├── 🛡️ syftperm.yaml
+        ├── 📄 results.json
+        └── 📁 shared
+            └── 📄 analysis.py
+```
+
+## Display Function
+
+### Automatic Type Detection
+
+The `display` function automatically detects the type and formats accordingly:
+
+```python
+from syft_notebook_ui import display
+
+# Lists → TableList (formatted table)
+display([{"a": 1}, {"a": 2}])
+
+# Dicts → TableDict (key-value table)
+display({"key1": "value1", "key2": "value2"})
+
+# Other types → returned as-is
+display("plain text")
+display(42)
+```
+
+### TableList
+
+Converts lists of dictionaries to formatted tables:
+
+```python
+from syft_notebook_ui import display
+
+jobs = [
+    {"id": "job-1", "status": "completed", "owner": "alice@example.com"},
+    {"id": "job-2", "status": "running", "owner": "bob@example.com"},
+    {"id": "job-3", "status": "pending", "owner": "charlie@example.com"},
+]
+
+display(jobs)
+```
+
+### TableDict
+
+Converts dictionaries to formatted key-value tables:
+
+```python
+from syft_notebook_ui import display
+
+status = {
+    "service": "notify",
+    "running": True,
+    "last_check": "2026-03-02 10:30:00",
+    "interval": 30,
+}
+
+display(status)
+```
+
+## show_dir Function
+
+Visualizes directory structures with icons and formatting.
+
+### Basic Usage
+
+```python
+from syft_notebook_ui import show_dir
+from pathlib import Path
+
+# Show a directory
+show_dir(Path("/path/to/directory"))
+```
+
+### Special Icons
+
+The `show_dir` function uses special icons for different file types:
+
+- 📁 Folders
+- 📄 Regular files
+- 🛡️ Permission files (`syftperm.yaml`)
+
+```python
+from syft_notebook_ui import show_dir
+from pathlib import Path
+
+# Visualize a SyftBox directory
+show_dir(Path("~/SyftBox/user@example.com/public").expanduser())
+```
+
+**Output:**
+
+```
+📁 public
+├── 🛡️ syftperm.yaml    # Permission file highlighted
+├── 📁 datasets
+│   ├── 📄 data.csv
+│   └── 📄 metadata.json
+└── 📁 results
+    └── 📄 output.json
+```
+
+## Integration with SyftBox
+
+### Displaying Job Status
+
+```python
+from syft_job import JobClient, SyftJobConfig
+from syft_notebook_ui import display
+from pathlib import Path
+
+# Get job list
+config = SyftJobConfig(
+    syftbox_root=Path("~/SyftBox").expanduser(),
+    email="user@example.com"
+)
+client = JobClient.from_config(config)
+jobs = client.list_jobs()
+
+# Display as table
+display(jobs)
+```
+
+### Displaying File Permissions
+
+```python
+import syft_perm as sp
+from syft_notebook_ui import display
+
+# Get files with specific permissions
+admin_files = sp.files.search(admin="me@example.com")
+
+# Display as formatted table
+display([
+    {"file": f.name, "path": str(f.path)} 
+    for f in admin_files
+])
+```
+
+### Visualizing SyftBox Structure
+
+```python
+from syft_datasets import SyftBoxConfig
+from syft_notebook_ui import show_dir
+from pathlib import Path
+
+config = SyftBoxConfig(
+    syftbox_folder=Path("~/SyftBox").expanduser(),
+    email="user@example.com"
+)
+
+# Show private directory
+print("Private Directory:")
+show_dir(config.private_dir)
+
+print("\nPublic Directory:")
+show_dir(config.public_dir)
+```
+
+## Advanced Usage
+
+### Custom Formatting
+
+```python
+from syft_notebook_ui import display
+
+# Prepare data for display
+def format_job_info(job):
+    return {
+        "ID": job.id,
+        "Status": job.status.upper(),
+        "Owner": job.owner,
+        "Created": job.created_at.strftime("%Y-%m-%d %H:%M"),
+    }
+
+jobs = get_all_jobs()
+formatted_jobs = [format_job_info(job) for job in jobs]
+display(formatted_jobs)
+```
+
+### Conditional Display
+
+```python
+from syft_notebook_ui import display
+from pathlib import Path
+
+def display_directory_if_exists(path: Path):
+    if path.exists() and path.is_dir():
+        show_dir(path)
+    else:
+        print(f"Directory not found: {path}")
+
+display_directory_if_exists(Path("~/SyftBox").expanduser())
+```
+
+## Error Handling
+
+```python
+from syft_notebook_ui import show_dir
+from pathlib import Path
+
+try:
+    show_dir(Path("/invalid/path"))
+except Exception as e:
+    print(f"Error displaying directory: {e}")
+```
+
+The `show_dir` function handles errors gracefully and returns error messages instead of crashing.
+
+## Dependencies
+
+- `nh3>=0.2.21` - HTML sanitization
+- `jinja2>=3.1.6` - Template rendering
+- `ipython>=7.34.0` - IPython integration
+- `rich>=13.9.4` - Rich text formatting
+- `pydantic[email]>=2.10.4` - Data validation
+- `loguru>=0.7.3` - Logging
+
+## Related Packages
+
+- [syft-datasets](/packages/syft-datasets) - Uses this package for config display
+- [syft-perm](/packages/syft-perm) - Can use this for displaying file lists

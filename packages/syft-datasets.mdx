@@ -1,0 +1,158 @@
+---
+title: syft-dataset
+description: Dataset configuration for SyftBox
+---
+
+`syft-dataset` (note: package name is `syft-dataset`, not `syft-datasets`) provides configuration utilities for managing SyftBox datasets and folder structures.
+
+## Installation
+
+```bash
+pip install syft-dataset
+```
+
+## When to Use
+
+Use `syft-dataset` when you need to:
+
+- Configure SyftBox folder paths
+- Access private and public directories in your SyftBox
+- Manage dataset locations in your datasite
+- Build applications that need to know SyftBox folder structure
+
+## API Reference
+
+### Main Export
+
+```python
+from syft_datasets import SyftBoxConfig
+```
+
+### SyftBoxConfig
+
+The `SyftBoxConfig` class provides a structured way to access SyftBox directories.
+
+```python
+from syft_datasets import SyftBoxConfig
+from pathlib import Path
+
+# Create configuration
+config = SyftBoxConfig(
+    syftbox_folder=Path("~/SyftBox").expanduser(),
+    email="user@example.com"
+)
+
+# Access directories
+print(config.private_dir)  # ~/SyftBox/private
+print(config.public_dir)   # ~/SyftBox/user@example.com/public
+```
+
+## Configuration Properties
+
+### syftbox_folder
+
+The root path to your SyftBox folder on the local filesystem.
+
+```python
+config.syftbox_folder  # Path object
+```
+
+### email
+
+Your email address associated with the SyftBox.
+
+```python
+config.email  # str
+```
+
+### private_dir
+
+Path to your private directory where sensitive data is stored.
+
+```python
+config.private_dir  # Path: {syftbox_folder}/private
+```
+
+### public_dir
+
+Path to your public directory where shared data is stored.
+
+```python
+config.public_dir  # Path: {syftbox_folder}/{email}/public
+```
+
+## Basic Usage
+
+### Accessing SyftBox Directories
+
+```python
+from syft_datasets import SyftBoxConfig
+from pathlib import Path
+
+# Initialize config
+config = SyftBoxConfig(
+    syftbox_folder=Path.home() / "SyftBox",
+    email="scientist@example.com"
+)
+
+# Read from private directory
+private_file = config.private_dir / "my_data.csv"
+if private_file.exists():
+    print(f"Found private data at {private_file}")
+
+# Write to public directory
+public_file = config.public_dir / "shared_results.json"
+public_file.parent.mkdir(parents=True, exist_ok=True)
+public_file.write_text('{"result": "success"}')
+```
+
+### Using with Applications
+
+```python
+from syft_datasets import SyftBoxConfig
+import os
+
+# Get SyftBox path from environment or use default
+syftbox_path = Path(os.getenv("SYFTBOX_ROOT", "~/SyftBox")).expanduser()
+
+config = SyftBoxConfig(
+    syftbox_folder=syftbox_path,
+    email="user@example.com"
+)
+
+# Use config throughout your application
+def load_dataset(filename: str):
+    dataset_path = config.private_dir / "datasets" / filename
+    return dataset_path
+
+def save_results(filename: str, data: str):
+    output_path = config.public_dir / "results" / filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(data)
+```
+
+## SyftBox Directory Structure
+
+The package helps navigate the standard SyftBox structure:
+
+```
+SyftBox/
+├── private/              # Private data (config.private_dir)
+│   ├── datasets/
+│   └── credentials/
+└── user@example.com/     # User-specific folder
+    └── public/           # Public shared data (config.public_dir)
+        ├── results/
+        └── shared/
+```
+
+## Dependencies
+
+- `pyyaml>=6.0.3` - YAML configuration parsing
+- `syft-notebook-ui` - UI utilities for notebooks
+- `syft-perm` - Permission management
+
+## Related Packages
+
+- [syft-perm](/packages/syft-perm) - Permission API for managing access
+- [syft-notebook-ui](/packages/syft-notebook-ui) - UI components for Jupyter notebooks

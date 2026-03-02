@@ -1,0 +1,475 @@
+---
+title: syft-bg
+description: Background services for email notifications and auto-approval
+---
+
+`syft-bg` provides background services for SyftBox that handle email notifications and automatic approval of peer requests and job submissions. It includes a TUI dashboard, CLI commands, and a Pythonic API.
+
+## Installation
+
+```bash
+pip install syft-bg
+```
+
+## When to Use
+
+Use `syft-bg` when you need to:
+
+- Receive email notifications for peer requests, job submissions, and job completions
+- Automatically approve peer connection requests from trusted domains
+- Automatically approve job submissions based on script hash and filenames
+- Monitor SyftBox activity in real-time with a TUI dashboard
+- Run SyftBox services as a background daemon
+
+## Quick Start
+
+```bash
+syft-bg init      # Interactive setup wizard
+syft-bg start     # Start background services
+syft-bg status    # Check what's running
+```
+
+## CLI Commands
+
+### syft-bg
+
+Launch the TUI dashboard to monitor services interactively.
+
+```bash
+syft-bg
+```
+
+### syft-bg init
+
+Interactive setup wizard or headless initialization.
+
+```bash
+# Interactive mode
+syft-bg init
+
+# Headless mode (requires tokens to already exist)
+syft-bg init --email user@example.com --quiet
+
+# With custom settings
+syft-bg init \
+  --email user@example.com \
+  --syftbox-root ~/SyftBox \
+  --notify-jobs \
+  --approve-jobs \
+  --skip-oauth
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--email, -e` | Data Owner email address |
+| `--syftbox-root` | SyftBox directory path |
+| `--yes, -y` | Auto-confirm config overwrite |
+| `--quiet, -q` | No prompts, use defaults (implies --skip-oauth) |
+| `--skip-oauth` | Skip OAuth setup (tokens must exist) |
+| `--notify-jobs/--no-notify-jobs` | Job email notifications |
+| `--notify-peers/--no-notify-peers` | Peer email notifications |
+| `--notify-interval` | Notification check interval (seconds) |
+| `--approve-jobs/--no-approve-jobs` | Auto-approve jobs |
+| `--jobs-peers-only/--no-jobs-peers-only` | Only approve jobs from approved peers |
+| `--approve-peers/--no-approve-peers` | Auto-approve peers |
+| `--approved-domains` | Comma-separated domains for peer approval |
+| `--approve-interval` | Approval check interval (seconds) |
+| `--filenames` | Required filenames (comma-separated) |
+| `--allowed-users` | Allowed users (comma-separated emails) |
+| `--credentials-path` | Path to credentials.json |
+| `--gmail-token` | Path to existing Gmail token |
+| `--drive-token` | Path to existing Drive token |
+
+### syft-bg setup
+
+Check environment for credentials, tokens, and configuration.
+
+```bash
+syft-bg setup
+```
+
+**Example output:**
+
+```
+SYFT-BG ENVIRONMENT CHECK
+==================================================
+
+Checking credentials...
+  ✓ credentials.json found at ~/.syft-creds/credentials.json
+
+Checking authentication tokens...
+  ✓ Gmail token: ~/.syft-creds/gmail_token.json
+  ✓ Drive token: ~/.syft-creds/token_do.json
+
+Checking configuration...
+  ✓ Config file: ~/.syft-creds/config.yaml
+
+--------------------------------------------------
+✅ Environment ready! Run 'syft-bg start' to begin.
+```
+
+### syft-bg status
+
+Show the status of background services.
+
+```bash
+syft-bg status
+```
+
+### syft-bg start
+
+Start all or specific background services.
+
+```bash
+# Start all services
+syft-bg start
+
+# Start specific service
+syft-bg start notify
+syft-bg start approve
+```
+
+### syft-bg stop
+
+Stop all or specific background services.
+
+```bash
+# Stop all services
+syft-bg stop
+
+# Stop specific service
+syft-bg stop notify
+syft-bg stop approve
+```
+
+### syft-bg restart
+
+Restart all or specific background services.
+
+```bash
+# Restart all services
+syft-bg restart
+
+# Restart specific service
+syft-bg restart notify
+syft-bg restart approve
+```
+
+### syft-bg logs
+
+View logs for a specific service.
+
+```bash
+# View notification service logs
+syft-bg logs notify
+
+# View approval service logs
+syft-bg logs approve
+
+# Follow logs in real-time
+syft-bg logs notify -f
+```
+
+### syft-bg hash
+
+Generate SHA256 hash for a script file (for auto-approval configuration).
+
+```bash
+syft-bg hash main.py
+# Output: sha256:a1b2c3d4e5f6...
+```
+
+### syft-bg install
+
+Install systemd service for auto-start on boot (Linux only).
+
+```bash
+syft-bg install
+
+# Enable and start
+systemctl --user enable syft-bg
+systemctl --user start syft-bg
+
+# Check status
+systemctl --user status syft-bg
+```
+
+### syft-bg uninstall
+
+Remove systemd service.
+
+```bash
+syft-bg uninstall
+```
+
+### syft-bg run
+
+Run services in foreground for debugging.
+
+```bash
+# Run notify service in foreground
+syft-bg run --service notify
+
+# Run approve service in foreground
+syft-bg run --service approve
+
+# Single check cycle, then exit
+syft-bg run --once
+```
+
+## Pythonic API
+
+Use `syft-bg` from Python scripts or Jupyter notebooks.
+
+```python
+import syft_bg
+
+# Initialize with configuration
+result = syft_bg.init(
+    email="user@example.com",
+    notify_jobs=True,
+    approve_jobs=True,
+    skip_oauth=True,
+)
+
+if result.success:
+    print(f"Config saved to {result.config_path}")
+else:
+    print(f"Error: {result.error}")
+```
+
+### Service Manager
+
+```python
+from syft_bg import ServiceManager
+
+# Create service manager
+manager = ServiceManager()
+
+# Start services
+manager.start_all()
+manager.start("notify")
+manager.start("approve")
+
+# Stop services
+manager.stop_all()
+manager.stop("notify")
+
+# Check status
+status = manager.status()
+print(status)
+```
+
+## Configuration
+
+Configuration is stored at `~/.syft-creds/config.yaml` (or `/content/drive/MyDrive/syft-creds/config.yaml` in Colab).
+
+```yaml
+do_email: you@example.com
+syftbox_root: ~/SyftBox
+
+notify:
+  interval: 30
+  monitor_jobs: true
+  monitor_peers: true
+
+approve:
+  interval: 5
+  jobs:
+    enabled: true
+    peers_only: true
+    required_filenames:
+      - main.py
+      - params.json
+    required_scripts: {}  # sha256 hashes
+    allowed_users: []     # empty = all approved peers
+  peers:
+    enabled: false
+    approved_domains:
+      - openmined.org
+```
+
+After editing the configuration, restart services:
+
+```bash
+syft-bg restart
+```
+
+## Services
+
+### notify
+
+Sends email notifications via Gmail when:
+
+- A peer requests to connect with you
+- Your peer request is approved by someone
+- A data scientist submits a job to you
+- A job you submitted is approved
+- A job completes (results ready)
+
+**Configuration:**
+
+```yaml
+notify:
+  interval: 30          # Check every 30 seconds
+  monitor_jobs: true    # Monitor job events
+  monitor_peers: true   # Monitor peer events
+```
+
+### approve
+
+Auto-approves peers and jobs based on your configuration.
+
+**Peer Auto-Approval:**
+
+Auto-accept connection requests from trusted domains:
+
+```yaml
+approve:
+  peers:
+    enabled: true
+    approved_domains:
+      - openmined.org
+      - mycompany.com
+```
+
+**Job Auto-Approval:**
+
+Auto-approve jobs that match criteria:
+
+```yaml
+approve:
+  jobs:
+    enabled: true
+    peers_only: true          # Only from approved peers
+    required_filenames:       # Must include these files
+      - main.py
+      - params.json
+    required_scripts:         # Script hash whitelist
+      main.py: "sha256:a1b2c3..."
+    allowed_users:            # Specific users (empty = all peers)
+      - scientist@example.com
+```
+
+## OAuth Setup
+
+Two OAuth flows are required:
+
+1. **Gmail** → `gmail_token.json` (send email permission)
+2. **Drive** → `token_do.json` (read/write files permission in Colab)
+
+### Getting credentials.json
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Create OAuth 2.0 Client ID (Desktop app)
+3. Download as `credentials.json`
+4. Place at `~/.syft-creds/credentials.json`
+
+### Interactive OAuth Flow
+
+```bash
+syft-bg init --email user@example.com
+# Prints OAuth URL, you paste the authorization code back
+```
+
+### Headless Mode
+
+```bash
+syft-bg init --email user@example.com --quiet
+# Skips OAuth, requires tokens to already exist
+```
+
+## Script Hash Validation
+
+Restrict auto-approval to specific scripts by hash:
+
+```bash
+# Generate hash for a script
+syft-bg hash main.py
+# Output: sha256:a1b2c3d4...
+```
+
+Add to `config.yaml`:
+
+```yaml
+approve:
+  jobs:
+    required_scripts:
+      main.py: "sha256:a1b2c3d4..."
+```
+
+Jobs with non-matching scripts require manual approval.
+
+## Systemd Integration
+
+Auto-start syft-bg on boot (Linux):
+
+```bash
+syft-bg install
+systemctl --user enable syft-bg
+systemctl --user start syft-bg
+
+# Check status
+systemctl --user status syft-bg
+
+# View logs
+journalctl --user -u syft-bg -f
+
+# Remove
+syft-bg uninstall
+```
+
+## Logs
+
+Logs are stored at `~/.syft-creds/logs/`:
+
+```bash
+# View notification logs
+syft-bg logs notify
+
+# View approval logs
+syft-bg logs approve
+
+# Follow logs in real-time
+syft-bg logs notify -f
+```
+
+## Colab / Jupyter Usage
+
+```python
+!pip install syft-bg
+
+import syft_bg
+
+# Initialize with Pythonic API
+result = syft_bg.init(
+    email="user@example.com",
+    notify_jobs=True,
+    approve_jobs=True,
+    verbose=True,  # Show progress
+)
+
+# Or use CLI
+!syft-bg init --email user@example.com --quiet
+!syft-bg start
+!syft-bg status
+```
+
+Drive credentials are handled natively in Colab.
+
+## Dependencies
+
+- `click>=8.0.0` - CLI framework
+- `pyyaml>=6.0` - Configuration parsing
+- `textual>=0.40.0` - TUI framework
+- `jinja2>=3.1.0` - Email templates
+- `google-api-python-client>=2.95.0` - Google API client
+- `google-auth>=2.22.0` - Google authentication
+- `google-auth-oauthlib>=1.0.0` - OAuth flow
+- `syft-job` - Job system integration
+
+## Related Packages
+
+- [syft-job](/packages/syft-job) - Job submission system

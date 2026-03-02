@@ -1,0 +1,307 @@
+---
+title: JobClient
+description: Client for submitting and managing jobs in SyftBox
+---
+
+## Overview
+
+The `JobClient` class provides methods for submitting jobs to SyftBox, managing job status, and querying jobs across datasites.
+
+## Factory Function
+
+### get_client()
+
+Create a JobClient from a SyftBox folder.
+
+```python
+from syft_job import get_client
+
+client = get_client(
+    syftbox_folder_path="/path/to/syftbox",
+    email="user@example.com",
+    user_email="peer@example.com"  # Optional
+)
+```
+
+<ParamField path="syftbox_folder_path" type="str" required>
+  Path to the SyftBox folder
+</ParamField>
+
+<ParamField path="email" type="str" required>
+  Root user email address
+</ParamField>
+
+<ParamField path="user_email" type="str">
+  Optional target user email for job views (defaults to root email)
+</ParamField>
+
+<ResponseField name="return" type="JobClient">
+  Configured JobClient instance
+</ResponseField>
+
+## JobClient Class
+
+### Constructor
+
+```python
+from syft_job import JobClient, SyftJobConfig
+
+config = SyftJobConfig.from_syftbox_folder(
+    syftbox_folder_path="/path/to/syftbox",
+    email="user@example.com"
+)
+
+client = JobClient(config, target_datasite_owner_email="peer@example.com")
+```
+
+<ParamField path="config" type="SyftJobConfig" required>
+  Configuration object for the job system
+</ParamField>
+
+<ParamField path="target_datasite_owner_email" type="str">
+  Email of the datasite owner whose jobs to manage (defaults to config.email)
+</ParamField>
+
+### Methods
+
+#### submit_python_job()
+
+Submit a Python job to a user's datasite.
+
+```python
+job_path = client.submit_python_job(
+    user="peer@example.com",
+    code_path="./my_script.py",
+    job_name="Data Analysis",
+    dependencies=["numpy", "pandas==1.5.0"],
+    entrypoint="main.py"  # For folder submissions
+)
+```
+
+<ParamField path="user" type="str" required>
+  Email address of the user to submit job for
+</ParamField>
+
+<ParamField path="code_path" type="str" required>
+  Path to Python file or folder containing Python code
+</ParamField>
+
+<ParamField path="job_name" type="str">
+  Name of the job (defaults to "Job - {random_id}")
+</ParamField>
+
+<ParamField path="dependencies" type="List[str]">
+  List of Python packages to install (e.g., ["numpy", "pandas==1.5.0"])
+</ParamField>
+
+<ParamField path="entrypoint" type="str">
+  Entry point file name for folder submissions (auto-detected if not provided)
+</ParamField>
+
+<ResponseField name="return" type="Path">
+  Path to the created job directory
+</ResponseField>
+
+**Auto-detection rules:**
+- For folders: Looks for `main.py` first, then single `.py` file at root
+- For files: Uses the file name as entrypoint
+
+**Example with folder:**
+
+```python
+# Submitting a project folder
+job_path = client.submit_python_job(
+    user="analyst@example.com",
+    code_path="./my_project",
+    job_name="ML Training",
+    dependencies=["scikit-learn", "numpy"],
+    entrypoint="main.py"
+)
+```
+
+#### submit_bash_job()
+
+Submit a bash script job to a user's datasite.
+
+```python
+script = """#!/bin/bash
+echo "Processing data..."
+python analyze.py
+"""
+
+job_path = client.submit_bash_job(
+    user="peer@example.com",
+    script=script,
+    job_name="Batch Processing"
+)
+```
+
+<ParamField path="user" type="str" required>
+  Email address of the user to submit job for
+</ParamField>
+
+<ParamField path="script" type="str" required>
+  Bash script content to execute
+</ParamField>
+
+<ParamField path="job_name" type="str">
+  Name of the job (defaults to "Job - {random_id}")
+</ParamField>
+
+<ResponseField name="return" type="Path">
+  Path to the created job directory
+</ResponseField>
+
+#### setup_ds_job_folder_as_do()
+
+Create a data scientist-specific job subdirectory with write permissions.
+
+```python
+ds_folder = client.setup_ds_job_folder_as_do(ds_email="analyst@example.com")
+```
+
+<ParamField path="ds_email" type="str" required>
+  Email of the data scientist to create the folder for
+</ParamField>
+
+<ResponseField name="return" type="Path">
+  Path to the created DS job folder
+</ResponseField>
+
+#### get_job_status()
+
+Get the status of a job based on marker files.
+
+```python
+status = client.get_job_status(job_path)
+# Returns: "inbox", "approved", or "done"
+```
+
+<ParamField path="job_path" type="Path" required>
+  Path to the job directory
+</ParamField>
+
+<ResponseField name="return" type="str">
+  Job status: "inbox", "approved", or "done"
+</ResponseField>
+
+#### Status Check Methods
+
+```python
+# Check if job is approved
+is_approved = client.is_job_approved(job_path)
+
+# Check if job is done
+is_done = client.is_job_done(job_path)
+
+# Check if job is in inbox
+is_inbox = client.is_job_inbox(job_path)
+```
+
+<ParamField path="job_path" type="Path" required>
+  Path to the job directory
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if job is in the specified status
+</ResponseField>
+
+### Properties
+
+#### jobs
+
+Get all jobs from all peer directories as an indexable list.
+
+```python
+# Get all jobs
+all_jobs = client.jobs
+
+# Access by index
+first_job = client.jobs[0]
+
+# Access by name
+my_job = client.jobs["Data Analysis"]
+
+# Iterate over jobs
+for job in client.jobs:
+    print(f"{job.name}: {job.status}")
+
+# Display in Jupyter
+print(client.jobs)  # Shows formatted tables
+```
+
+<ResponseField name="return" type="JobsList">
+  JobsList containing all jobs grouped by user, sorted by submission time
+</ResponseField>
+
+## Configuration
+
+### SyftJobConfig
+
+Configuration object for the job system.
+
+```python
+from syft_job import SyftJobConfig
+
+config = SyftJobConfig.from_syftbox_folder(
+    syftbox_folder_path="/path/to/syftbox",
+    email="user@example.com"
+)
+```
+
+<ParamField path="syftbox_folder_path" type="str" required>
+  Path to the SyftBox folder
+</ParamField>
+
+<ParamField path="email" type="str" required>
+  User email address
+</ParamField>
+
+**Configuration Fields:**
+
+<ResponseField name="syftbox_folder" type="Path">
+  Path to SyftBox root folder
+</ResponseField>
+
+<ResponseField name="email" type="str">
+  User email address
+</ResponseField>
+
+**Helper Methods:**
+
+```python
+# Get user directory
+user_dir = config.get_user_dir("peer@example.com")
+# Returns: Path("syftbox/peer@example.com")
+
+# Get job directory
+job_dir = config.get_job_dir("peer@example.com")
+# Returns: Path("syftbox/peer@example.com/app_data/job")
+```
+
+## Complete Example
+
+```python
+from syft_job import get_client
+
+# Initialize client
+client = get_client(
+    syftbox_folder_path="~/.syftbox",
+    email="owner@example.com"
+)
+
+# Submit a Python job
+job_path = client.submit_python_job(
+    user="analyst@example.com",
+    code_path="./analysis.py",
+    job_name="Monthly Report",
+    dependencies=["pandas", "matplotlib"]
+)
+
+print(f"Job submitted to: {job_path}")
+
+# Check all jobs
+for job in client.jobs:
+    if job.status == "inbox":
+        print(f"New job: {job.name} from {job.submitted_by}")
+```

@@ -1,0 +1,129 @@
+---
+title: syft-job
+description: Job submission and management system for SyftBox
+---
+
+`syft-job` is a package that provides a comprehensive job submission and management system for SyftBox. It allows data scientists to submit computational jobs to data owners and track their execution status.
+
+## Installation
+
+```bash
+pip install syft-job
+```
+
+## When to Use
+
+Use `syft-job` when you need to:
+
+- Submit computational jobs to remote SyftBox datasites
+- Track the status of submitted jobs
+- Run jobs on data owner's infrastructure
+- Manage job lifecycle (pending, running, completed, failed)
+- Create job runners for executing submitted jobs
+
+## Core Concepts
+
+### JobClient
+
+The `JobClient` is the main interface for submitting and managing jobs. It handles job submission, status tracking, and job lifecycle management.
+
+### JobRunner
+
+The `JobRunner` executes jobs on the data owner's side, managing virtual environments and job execution.
+
+## API Reference
+
+### Main Exports
+
+```python
+from syft_job import (
+    JobClient,        # Client for submitting jobs
+    get_client,       # Helper to create JobClient from config
+    SyftJobConfig,    # Configuration object
+    SyftJobRunner,    # Runner for executing jobs
+    create_runner,    # Helper to create JobRunner
+)
+```
+
+## Basic Usage
+
+### Submitting a Job
+
+```python
+from syft_job import JobClient, SyftJobConfig
+from pathlib import Path
+
+# Create configuration
+config = SyftJobConfig(
+    syftbox_root=Path("~/SyftBox").expanduser(),
+    email="scientist@example.com"
+)
+
+# Initialize client
+client = JobClient(config, target_datasite_owner_email="dataowner@example.com")
+
+# Submit a job
+job_id = client.submit_job(
+    script_path="analysis.py",
+    files=["data.csv", "params.json"],
+    description="Run privacy-preserving analysis"
+)
+
+print(f"Job submitted with ID: {job_id}")
+```
+
+### Checking Job Status
+
+```python
+# Get status of a specific job
+status = client.get_job_status(job_path)
+print(f"Job status: {status}")  # pending, running, completed, failed
+
+# List all jobs
+jobs = client.list_jobs()
+for job in jobs:
+    print(f"Job {job.id}: {job.status}")
+```
+
+### Running Jobs (Data Owner Side)
+
+```python
+from syft_job import SyftJobRunner, create_runner
+
+# Create a runner
+runner = create_runner(
+    syftbox_root=Path("~/SyftBox").expanduser(),
+    email="dataowner@example.com"
+)
+
+# Process pending jobs
+runner.process_jobs()
+```
+
+## Job Lifecycle
+
+1. **Pending**: Job submitted, waiting for approval
+2. **Running**: Job is currently executing
+3. **Completed**: Job finished successfully
+4. **Failed**: Job encountered an error
+
+## Dependencies
+
+- `pydantic>=2.11.7` - Data validation
+- `pyyaml>=6.0` - Configuration parsing
+- `pandas` - Data manipulation
+- `syft-perm` - Permission management
+
+## Configuration
+
+The `SyftJobConfig` object requires:
+
+- `syftbox_root`: Path to your SyftBox directory
+- `email`: Your email address
+
+Jobs are stored in the SyftBox directory structure and managed through the permission system.
+
+## Related Packages
+
+- [syft-perm](/packages/syft-perm) - Permission API for managing job access
+- [syft-bg](/packages/syft-bg) - Background services for auto-approving jobs

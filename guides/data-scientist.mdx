@@ -1,0 +1,420 @@
+---
+title: Data Scientist Guide
+description: Complete guide for data scientists using Syft Client to access datasets and submit jobs
+---
+
+# Data Scientist Guide
+
+This guide covers everything you need to know as a data scientist using Syft Client to collaborate on private data through peer-to-peer connections.
+
+## Overview
+
+As a data scientist, you'll use Syft Client to:
+- Connect to data owners' datasites
+- Discover and access shared datasets
+- Submit computational jobs to run on private data
+- Retrieve results from approved jobs
+
+## Getting Started
+
+### Login
+
+Use `login_ds()` to authenticate and connect to the Syft network:
+
+```python
+import syft_client as sc
+
+# For Google Colab (auto-detects your Google account)
+client = sc.login_ds()
+
+# For Jupyter (requires token file)
+client = sc.login_ds(
+    email="your.email@gmail.com",
+    token_path="path/to/token_ds.json"
+)
+```
+
+<Note>
+The `login_ds()` function automatically detects your environment (Colab or Jupyter) and configures the appropriate authentication method.
+</Note>
+
+### Login Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `email` | `str \| None` | `None` | Your email address. Auto-detected in Colab. |
+| `sync` | `bool` | `True` | Sync with Google Drive on login |
+| `load_peers` | `bool` | `True` | Load peer connections on login |
+| `token_path` | `str \| Path \| None` | `None` | Path to OAuth token file (Jupyter only) |
+
+**Source:** `syft_client/sync/login.py:19-53`
+
+## Working with Peers
+
+### Adding a Data Owner
+
+Before you can access datasets or submit jobs, you need to connect with a data owner:
+
+```python
+# Add a peer connection (sends a request to the data owner)
+client.add_peer("dataowner@example.com")
+```
+
+### Viewing Your Peers
+
+```python
+# See all your peer connections
+peers = client.peers
+print(peers)
+```
+
+Peers will show as "outstanding" until the data owner approves your request.
+
+<Note>
+By default, `client.peers` automatically syncs before returning results. To disable auto-sync, set the environment variable: `PRE_SYNC=false`
+</Note>
+
+**Source:** `syft_client/sync/syftbox_manager.py:407-432`
+
+## Discovering Datasets
+
+### List Available Datasets
+
+Once a data owner approves your peer request and shares datasets with you:
+
+```python
+# View all datasets you have access to
+datasets = client.datasets.get_all()
+print(datasets)
+```
+
+### Access a Specific Dataset
+
+```python
+# Get a dataset by name and owner
+dataset = client.datasets.get(
+    name="my dataset",
+    datasite="dataowner@example.com"
+)
+
+# Access mock data files
+mock_file = dataset.mock_files[0]
+with open(mock_file, "r") as f:
+    data = f.read()
+
+# View dataset metadata
+print(dataset.name)
+print(dataset.summary)
+print(dataset.tags)
+```
+
+<Warning>
+You can only access **mock data** directly. To work with the real private data, you must submit a job that runs on the data owner's machine.
+</Warning>
+
+### Resolve Dataset Paths in Jobs
+
+Use `sc.resolve_dataset_file_path()` in your job code to reference datasets:
+
+```python
+import syft_client as sc
+
+# Automatically resolves to the correct path
+data_path = sc.resolve_dataset_file_path("my dataset")
+with open(data_path, "r") as f:
+    data = f.read()
+```
+
+**Source:** `syft_client/utils.py` and test examples in `tests/unit/test_sync_manager.py:584-606`
+
+## Submitting Jobs
+
+### Python Jobs
+
+<Steps>
+  <Step title="Write your analysis code">
+    Create a Python file that performs your analysis:
+    
+    ```python
+    # analysis.py
+    import syft_client as sc
+    import json
+    
+    # Load dataset
+    data_path = sc.resolve_dataset_file_path("my dataset")
+    with open(data_path, "r") as f:
+        data = f.read()
+    
+    # Perform analysis
+    result = {"length": len(data), "summary": "Analyzed data"}
+    
+    # Write results to outputs/ folder
+    with open("outputs/result.json", "w") as f:
+        f.write(json.dumps(result))
+    ```
+  </Step>
+  
+  <Step title="Submit the job">
+    ```python
+    client.submit_python_job(
+        user="dataowner@example.com",
+        code_path="/path/to/analysis.py",
+        job_name="My Analysis",
+        dependencies=["pandas==2.0.0", "numpy"]
+    )
+    ```
+  </Step>
+  
+  <Step title="Wait for approval">
+    The data owner will review and approve your job. You can check status:
+    
+    ```python
+    jobs = client.jobs
+    for job in jobs:
+        print(f"{job.name}: {job.status}")
+    ```
+  </Step>
+  
+  <Step title="Retrieve results">
+    Once the job is executed, sync to get results:
+    
+    ```python
+    client.sync()
+    
+    # Access job outputs
+    job = client.jobs[0]
+    output_path = job.output_paths[0]
+    with open(output_path, "r") as f:
+        result = json.load(f)
+    print(result)
+    ```
+  </Step>
+</Steps>
+
+### Submit Folder-Based Jobs
+
+For complex projects with multiple files:
+
+```python
+client.submit_python_job(
+    user="dataowner@example.com",
+    code_path="/path/to/project_folder",
+    job_name="Complex Analysis",
+    entrypoint="main.py",  # Entry point within the folder
+    dependencies=["scikit-learn", "matplotlib"]
+)
+```
+
+**Source:** `packages/syft-job/src/syft_job/client.py:308-415`
+
+### Bash Jobs
+
+Submit shell scripts for simple tasks:
+
+```python
+bash_script = """
+#!/bin/bash
+echo "Starting analysis..."
+python analyze.py
+echo "Done!"
+"""
+
+client.submit_bash_job(
+    user="dataowner@example.com",
+    script=bash_script,
+    job_name="Bash Analysis"
+)
+```
+
+**Source:** `packages/syft-job/src/syft_job/client.py:106-169`
+
+## Job Workflow Details
+
+### Job Directory Structure
+
+When you submit a job, the following structure is created:
+
+```
+SyftBox_{your_email}/
+└── dataowner@example.com/
+    └── jobs/
+        └── your.email@gmail.com/
+            └── My Analysis/
+                ├── config.yaml      # Job metadata
+                ├── run.sh          # Execution script
+                ├── analysis.py     # Your code
+                ├── outputs/        # Results folder (created during execution)
+                └── logs/           # Execution logs
+```
+
+### Job Configuration
+
+Each job includes a `config.yaml` with metadata:
+
+```yaml
+name: My Analysis
+submitted_by: your.email@gmail.com
+submitted_at: '2026-03-02T10:30:00Z'
+type: python
+code_path: /path/to/analysis.py
+entry_point: analysis.py
+dependencies:
+  - syft-client
+  - pandas==2.0.0
+  - numpy
+```
+
+### Dependencies
+
+Your job automatically includes `syft-client` as a dependency. The data owner's machine will:
+1. Create a virtual environment
+2. Install all specified dependencies
+3. Execute your code
+
+**Source:** `packages/syft-job/src/syft_job/client.py:387-408`
+
+## Syncing Data
+
+Syft Client syncs data with Google Drive to coordinate with peers:
+
+```python
+# Manually trigger a sync
+client.sync()
+
+# Disable auto-sync for performance
+import os
+os.environ["PRE_SYNC"] = "false"
+
+# Now you need to manually sync
+client.sync()
+datasets = client.datasets.get_all()
+```
+
+<Note>
+**Auto-sync behavior:**
+- `client.datasets` - syncs before returning
+- `client.jobs` - syncs before returning
+- `client.peers` - syncs before returning
+
+Set `PRE_SYNC=false` to disable this behavior for better performance when making multiple calls.
+</Note>
+
+**Source:** `syft_client/sync/syftbox_manager.py:727-755`
+
+## Best Practices
+
+### Job Submission
+
+1. **Test locally first** - Verify your code works with mock data before submitting
+2. **Use specific dependency versions** - Pin versions to avoid compatibility issues
+3. **Write outputs to the outputs/ folder** - This is the standard location for results
+4. **Handle errors gracefully** - Include try/except blocks in your code
+5. **Keep jobs focused** - Break complex analyses into smaller jobs
+
+### Code Example with Error Handling
+
+```python
+# robust_analysis.py
+import syft_client as sc
+import json
+import sys
+
+try:
+    # Load dataset
+    data_path = sc.resolve_dataset_file_path("my dataset")
+    with open(data_path, "r") as f:
+        data = f.read()
+    
+    # Perform analysis
+    result = {"status": "success", "length": len(data)}
+    
+except Exception as e:
+    # Write error to outputs
+    result = {"status": "error", "message": str(e)}
+    print(f"Error: {e}", file=sys.stderr)
+
+finally:
+    # Always write a result
+    with open("outputs/result.json", "w") as f:
+        f.write(json.dumps(result))
+```
+
+### Working with Multiple Data Owners
+
+```python
+# Connect to multiple data owners
+client.add_peer("hospital-a@example.com")
+client.add_peer("hospital-b@example.com")
+
+# Access datasets from different owners
+dataset_a = client.datasets.get("patient-records", datasite="hospital-a@example.com")
+dataset_b = client.datasets.get("patient-records", datasite="hospital-b@example.com")
+
+# Submit jobs to different owners
+client.submit_python_job(
+    user="hospital-a@example.com",
+    code_path="analyze_a.py",
+    job_name="Analysis A"
+)
+
+client.submit_python_job(
+    user="hospital-b@example.com",
+    code_path="analyze_b.py",
+    job_name="Analysis B"
+)
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PRE_SYNC` | `"true"` | Auto-sync before accessing datasets/jobs/peers |
+| `SYFTCLIENT_TOKEN_PATH` | `None` | Default token path for authentication |
+| `SYFTCLIENT_DEV_MODE` | `False` | Enable development mode features |
+
+**Source:** `syft_client/sync/config/config.py:1-13`
+
+## Common Issues
+
+### "Email is required for Jupyter login"
+
+When using Jupyter, you must provide your email:
+
+```python
+client = sc.login_ds(
+    email="your.email@gmail.com",
+    token_path="token_ds.json"
+)
+```
+
+### "Token path is required for Jupyter login"
+
+See the [Authentication Guide](/guides/authentication) for setting up OAuth tokens.
+
+### Job stuck in pending
+
+The data owner hasn't approved your job yet. Contact them or wait for approval.
+
+### Cannot find dataset
+
+Ensure:
+1. The data owner has shared the dataset with you
+2. You've synced recently: `client.sync()`
+3. The dataset name and owner email are correct
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Setup" icon="key" href="/guides/authentication">
+    Set up OAuth tokens for Jupyter environments
+  </Card>
+  <Card title="Notebooks Guide" icon="book" href="/guides/notebooks">
+    Learn notebook-specific workflows for Colab and Jupyter
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/client/login">
+    Explore the full API documentation
+  </Card>
+  <Card title="Data Owner Guide" icon="database" href="/guides/data-owner">
+    Learn how to share data and manage jobs
+  </Card>
+</CardGroup>

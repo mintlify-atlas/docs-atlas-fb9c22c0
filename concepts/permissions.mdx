@@ -1,0 +1,631 @@
+---
+title: Permission System
+description: File-first access control using syft.pub.yaml and the permission engine
+---
+
+Syft uses a **file-first permission system** where access control is defined by `syft.pub.yaml` files placed throughout the datasite folder hierarchy.
+
+## Core Permission Principles
+
+<CardGroup cols={2}>
+  <Card title="File-Permission-First" icon="file-shield">
+    **Principle 2**: Access control is first and foremost described by file permissions. Job policies are secondary.
+  </Card>
+  <Card title="File First" icon="folder-tree">
+    **Principle 1**: State is files. Permissions are also files (`syft.pub.yaml`) synced between peers.
+  </Card>
+  <Card title="Single Gateway" icon="door-open">
+    **Principle 17**: Only one job queue per datasite. Data owners see everything entering/leaving.
+  </Card>
+  <Card title="Manual Review First" icon="eye">
+    **Principle 7**: All jobs are manually reviewed unless a policy auto-approves them.
+  </Card>
+</CardGroup>
+
+<Warning>
+Following **Principle 2**, there are only two permission systems: **file permissions** and **job policies**. Nothing else. No hidden access control.
+</Warning>
+
+## Permission Files
+
+Permissions are defined in `syft.pub.yaml` files:
+
+<CodeGroup>
+```yaml syft.pub.yaml
+# File: alice@example.com/public/syft.pub.yaml
+rules:
+  - pattern: "**/*"              # Match all files in this folder
+    access:
+      read: ["*"]                # Everyone can read
+      write: ["alice@example.com"]  # Only owner can write
+
+terminal: false                  # Continue checking parent folders
+```
+
+```yaml Specific Access
+# File: alice@example.com/api_data/syft.pub.yaml
+rules:
+  - pattern: "results/*"         # Match results subfolder
+    access:
+      read: ["bob@example.com", "carol@example.com"]
+      write: ["bob@example.com"]  # Bob can write results
+      admin: ["alice@example.com"]
+  
+  - pattern: "*.json"            # Match all JSON files
+    access:
+      read: ["*@trusted-domain.com"]  # Domain wildcard
+
+terminal: true                   # Don't check parent folders
+```
+</CodeGroup>
+
+### Permission File Schema
+
+<CodeGroup>
+```python syft_permissions/spec/ruleset.py
+class RuleSet(BaseModel):
+    """A collection of permission rules in a folder"""
+    
+    rules: list[Rule] = []       # List of permission rules
+    terminal: bool = False       # Stop checking parent folders?
+    path: str = ""               # Path to this ruleset (runtime)
+    
+    @classmethod
+    def load(cls, filepath: Path) -> "RuleSet":
+        """Load from syft.pub.yaml file"""
+        with open(filepath) as f:
+            data = yaml.safe_load(f) or {}
+        rs = cls.model_validate(data)
+        rs.path = str(filepath.parent)
+        return rs
+
+class Rule(BaseModel):
+    """A single permission rule"""
+    
+    pattern: str                 # Glob pattern (e.g., "**/*.csv")
+    access: Access               # Access levels
+
+class Access(BaseModel):
+    """Access control lists"""
+    
+    admin: list[str] = []        # Full control
+    write: list[str] = []        # Can create/modify files
+    read: list[str] = []         # Can read files
+```
+</CodeGroup>
+
+### Pattern Matching
+
+Patterns use glob syntax:
+
+<AccordionGroup>
+  <Accordion title="**/* - All files recursively" icon="asterisk">
+    ```yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["*"]
+    ```
+    Matches all files in folder and subfolders.
+  </Accordion>
+  
+  <Accordion title="*.csv - CSV files in this folder" icon="table">
+    ```yaml
+    rules:
+      - pattern: "*.csv"
+        access:
+          read: ["bob@example.com"]
+    ```
+    Matches only `.csv` files in the current folder (not subfolders).
+  </Accordion>
+  
+  <Accordion title="data/** - Subfolder recursively" icon="folder">
+    ```yaml
+    rules:
+      - pattern: "data/**"
+        access:
+          read: ["*@research-team.com"]
+    ```
+    Matches all files under `data/` subfolder.
+  </Accordion>
+  
+  <Accordion title="results_*.json - Pattern matching" icon="file-code">
+    ```yaml
+    rules:
+      - pattern: "results_*.json"
+        access:
+          read: ["alice@example.com", "bob@example.com"]
+    ```
+    Matches files like `results_2024.json`, `results_final.json`, etc.
+  </Accordion>
+</AccordionGroup>
+
+### Access Levels
+
+<Tabs>
+  <Tab title="Read">
+    Can view file contents. Required to:
+    - Download files from peer's datasite
+    - List file existence
+    - See file in job outputs
+    
+    ```yaml
+    access:
+      read: ["bob@example.com", "*@company.com"]
+    ```
+  </Tab>
+  
+  <Tab title="Write">
+    Can create/modify files. Required to:
+    - Submit jobs to peer's job queue
+    - Upload results to peer's datasite
+    - Modify existing files
+    
+    ```yaml
+    access:
+      write: ["bob@example.com"]
+    ```
+    
+    <Info>Write permission implicitly grants read permission.</Info>
+  </Tab>
+  
+  <Tab title="Admin">
+    Full control. Can:
+    - Do anything read/write can do
+    - Modify permission files
+    - Delete files
+    
+    ```yaml
+    access:
+      admin: ["alice@example.com"]  # Typically only the owner
+    ```
+    
+    <Info>Admin permission implicitly grants read and write.</Info>
+  </Tab>
+</Tabs>
+
+### User Patterns
+
+Access lists support several patterns:
+
+| Pattern | Meaning | Example |
+|---------|---------|----------|
+| `"*"` | Everyone (any user) | `read: ["*"]` |
+| `"user@domain.com"` | Specific user | `read: ["bob@example.com"]` |
+| `"*@domain.com"` | Domain wildcard | `read: ["*@company.com"]` |
+| `"USER"` | Placeholder (owner) | `admin: ["USER"]` |
+
+<CodeGroup>
+```yaml Public Access
+# Everyone can read
+access:
+  read: ["*"]
+  write: ["alice@example.com"]
+```
+
+```yaml Specific Users
+# Only specific users
+access:
+  read: ["bob@example.com", "carol@example.com"]
+  write: ["bob@example.com"]
+```
+
+```yaml Domain Wildcard
+# All users from a domain
+access:
+  read: ["*@research-institute.org"]
+  write: ["*@research-institute.org"]
+```
+</CodeGroup>
+
+## Permission Hierarchy
+
+Permissions are inherited through the folder hierarchy:
+
+```
+alice@example.com/
+├── syft.pub.yaml           # Root: admin = ["alice@example.com"]
+├── public/
+│   ├── syft.pub.yaml       # Override: read = ["*"], terminal = false
+│   ├── data.csv            # ✅ Everyone can read (from public/syft.pub.yaml)
+│   └── restricted/
+│       ├── syft.pub.yaml   # Override: read = ["bob@example.com"], terminal = true
+│       └── secret.csv      # ✅ Only Bob can read (terminal stops parent check)
+└── private/
+    ├── syft.pub.yaml       # Override: read = ["alice@example.com"], terminal = true
+    └── sensitive.csv       # ✅ Only Alice can read
+```
+
+### Terminal Flag
+
+The `terminal` flag controls whether to check parent folders:
+
+<Tabs>
+  <Tab title="terminal: false (default)">
+    Continue checking parent folder permissions.
+    
+    ```yaml
+    # public/syft.pub.yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["*"]
+    terminal: false  # Also check ../syft.pub.yaml
+    ```
+    
+    Effective permissions are the **union** of this folder and parents.
+  </Tab>
+  
+  <Tab title="terminal: true">
+    Stop checking parent folders. Only use rules in this file.
+    
+    ```yaml
+    # private/syft.pub.yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["alice@example.com"]
+    terminal: true  # Don't check parent folders
+    ```
+    
+    Effective permissions are **only** from this file.
+  </Tab>
+</Tabs>
+
+## Permission Engine
+
+The permission engine evaluates access at runtime:
+
+<CodeGroup>
+```python Using Permission Context
+from syft_perm import SyftPermContext
+from pathlib import Path
+
+# Initialize context for a datasite
+datasite = Path("/syftbox/alice@example.com")
+ctx = SyftPermContext(datasite=datasite)
+
+# Check permissions on a file
+file_perm = ctx.open("public/data.csv")
+
+# Check if user has access
+if file_perm.has_read_access("bob@example.com"):
+    print("Bob can read this file")
+
+if file_perm.has_write_access("bob@example.com"):
+    print("Bob can write to this file")
+```
+
+```python Granting Access
+from syft_perm import SyftPermContext
+
+# Initialize context
+datasite = Path("/syftbox/alice@example.com")
+ctx = SyftPermContext(datasite=datasite)
+
+# Grant access to a folder
+api_folder = ctx.open("api_data/")
+api_folder.grant_read_access("bob@example.com")
+api_folder.grant_write_access("bob@example.com")
+
+# Grant access to specific file
+results = ctx.open("api_data/results.json")
+results.grant_read_access("carol@example.com")
+```
+</CodeGroup>
+
+### Permission Checking in Sync
+
+The `DatasiteOwnerSyncer` checks permissions on all incoming changes:
+
+<CodeGroup>
+```python syft_client/sync/sync/datasite_owner_syncer.py (line 637)
+def handle_proposed_filechange_events_message(
+    self, sender_email: str, proposed_events_message: ProposedFileChangesMessage
+):
+    """Process incoming file changes from a peer"""
+    
+    # Filter to only changes sender has permission to make
+    allowed_changes = [
+        change
+        for change in proposed_events_message.proposed_file_changes
+        if self.check_write_permission(sender_email, str(change.path_in_datasite))
+    ]
+    
+    if not allowed_changes:
+        return  # Reject all changes silently
+    
+    # Process only allowed changes
+    filtered_message = ProposedFileChangesMessage(
+        sender_email=proposed_events_message.sender_email,
+        proposed_file_changes=allowed_changes,
+    )
+    
+    accepted_events_message = self.event_cache.process_proposed_events_message(
+        filtered_message
+    )
+```
+</CodeGroup>
+
+<Warning>
+Unauthorized changes are **silently rejected**. No error is returned to the sender. This prevents information leakage about file structure.
+</Warning>
+
+### Read Permission Enforcement
+
+When sharing file changes with peers, only readers get the updates:
+
+<CodeGroup>
+```python syft_client/sync/sync/datasite_owner_syncer.py (line 552)
+def _route_data_events(
+    self,
+    data_events: list[FileChangeEvent],
+    recipients: list[str],
+    events_by_recipient: dict[str, list[FileChangeEvent]],
+    data_event_sent_to: dict[str, set[str]],
+):
+    """Route data events to recipients who have read access."""
+    for event in data_events:
+        path_str = str(event.path_in_datasite)
+        
+        # Get all recipients with read permission
+        readers = self._get_readers(path_str, recipients)
+        
+        # Send event only to authorized readers
+        for reader in readers:
+            events_by_recipient[reader].append(event)
+
+def _get_readers(self, path: str, recipients: list[str]) -> frozenset[str]:
+    """Return recipients that have read access to the given path."""
+    return frozenset(r for r in recipients if self.check_read_permissions(r, path))
+```
+</CodeGroup>
+
+## Job Permissions
+
+Jobs are submitted to the data owner's job queue. Write permission to the job queue is required:
+
+```yaml
+# alice@example.com/jobs/bob@example.com/syft.pub.yaml
+rules:
+  - pattern: "**/*"
+    access:
+      write: ["bob@example.com"]  # Bob can submit jobs
+      read: ["alice@example.com", "bob@example.com"]  # Both can read
+      admin: ["alice@example.com"]  # Alice controls her queue
+```
+
+### Setting Up Job Folder for Data Scientist
+
+Data owners can grant job submission access:
+
+```python
+from syft_job import get_client
+
+client = get_client("/path/to/syftbox", "alice@example.com")
+
+# Create job folder for Bob with write permissions
+ds_job_dir = client.setup_ds_job_folder_as_do("bob@example.com")
+
+# This creates:
+# alice@example.com/jobs/bob@example.com/
+# with write permissions for bob@example.com
+```
+
+Now Bob can submit jobs:
+
+```python
+client = get_client("/path/to/syftbox", "bob@example.com")
+
+client.submit_python_job(
+    user="alice@example.com",
+    code_path="analysis.py",
+    job_name="My Analysis"
+)
+# Job written to alice@example.com/jobs/bob@example.com/My Analysis/
+```
+
+## Job Policies
+
+Following **Principle 2**, job policies are the **second** permission system (after file permissions):
+
+<CodeGroup>
+```python Auto-Approval Policy
+from syft_client.job_auto_approval import (
+    create_approval_policy,
+    job_matches_criteria
+)
+from syft_job import get_client
+
+client = get_client("/path/to/syftbox", "alice@example.com")
+
+# Define auto-approval criteria
+EXPECTED_SCRIPT = """
+#!/bin/bash
+set -e
+python count.py
+"""
+
+policy = create_approval_policy(
+    required_scripts={"run.sh": EXPECTED_SCRIPT},
+    required_filenames=["count.py"],
+    allowed_users=["bob@example.com", "carol@example.com"],
+    peers_only=True,  # Only approved peers
+    auto_approve=True
+)
+
+# Check jobs against policy
+for job in client.jobs:
+    if job.status == "inbox" and job_matches_criteria(
+        job,
+        required_scripts=policy["required_scripts"],
+        required_filenames=policy["required_filenames"],
+        allowed_users=policy["allowed_users"],
+        peers_only=policy["peers_only"],
+    ):
+        job.approve()  # Auto-approve matching jobs
+```
+</CodeGroup>
+
+Job policies can check:
+- **Exact script match**: Script content must match exactly
+- **Required files**: Job must contain specific files
+- **Allowed users**: Only jobs from specific users
+- **Peers only**: Only jobs from approved peer list
+
+See `syft_client/job_auto_approval.py` for implementation.
+
+<Warning>
+Job policies **cannot** override file permissions. Even with a policy, the job must still have write permission to the job queue.
+</Warning>
+
+## Permission Syncing
+
+Permission files are synced between peers like any other file:
+
+<Steps>
+  <Step title="Data Owner Updates Permissions">
+    Alice modifies `public/syft.pub.yaml` to grant Bob access:
+    
+    ```yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["*", "bob@example.com"]  # Add Bob
+    ```
+  </Step>
+  
+  <Step title="Permission File Synced">
+    The permission file itself is synced to Bob as a `FileChangeEvent`.
+  </Step>
+  
+  <Step title="Data Owner Re-evaluates Access">
+    When permission files change, affected data files are re-sent to newly authorized users:
+    
+    ```python
+    # From datasite_owner_syncer.py:569
+    def _route_perm_events(
+        self, perm_events, recipients, events_by_recipient, data_event_sent_to
+    ):
+        for event in perm_events:
+            # Find files affected by this permission change
+            affected_paths = self._get_paths_under_perm_file(str(event.path_in_datasite))
+            
+            for affected_path in affected_paths:
+                new_readers = self._get_readers(affected_path, recipients)
+                old_readers = self._read_perm_cache.get(affected_path, frozenset())
+                
+                # Find users who gained access
+                newly_permitted = new_readers - old_readers
+                
+                if newly_permitted:
+                    # Resend file to newly authorized users
+                    resend_event = self._create_resend_event(affected_path)
+                    for reader in newly_permitted:
+                        events_by_recipient[reader].append(resend_event)
+    ```
+  </Step>
+</Steps>
+
+## Common Permission Patterns
+
+<AccordionGroup>
+  <Accordion title="Public Folder (Everyone)" icon="globe">
+    ```yaml
+    # public/syft.pub.yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["*"]
+          write: ["alice@example.com"]
+    terminal: false
+    ```
+  </Accordion>
+  
+  <Accordion title="Private Folder (Owner Only)" icon="lock">
+    ```yaml
+    # private/syft.pub.yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["alice@example.com"]
+          write: ["alice@example.com"]
+          admin: ["alice@example.com"]
+    terminal: true  # Don't check parent folders
+    ```
+  </Accordion>
+  
+  <Accordion title="Shared with Specific Users" icon="users">
+    ```yaml
+    # shared/syft.pub.yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["bob@example.com", "carol@example.com"]
+          write: ["alice@example.com"]
+    terminal: false
+    ```
+  </Accordion>
+  
+  <Accordion title="Organization Access" icon="building">
+    ```yaml
+    # org_data/syft.pub.yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["*@company.com"]  # All company users
+          write: ["*@company.com"]
+    terminal: false
+    ```
+  </Accordion>
+  
+  <Accordion title="Job Queue" icon="list">
+    ```yaml
+    # jobs/bob@example.com/syft.pub.yaml
+    rules:
+      - pattern: "**/*"
+        access:
+          read: ["alice@example.com", "bob@example.com"]
+          write: ["bob@example.com"]  # Bob can submit jobs
+          admin: ["alice@example.com"]  # Alice controls her queue
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Considerations
+
+<CardGroup cols={2}>
+  <Card title="Defense in Depth" icon="shield">
+    Even if transport layer is compromised, file permissions are still enforced on the data owner's side.
+  </Card>
+  <Card title="Least Privilege" icon="user-shield">
+    Grant minimum necessary permissions. Use specific users instead of `"*"` when possible.
+  </Card>
+  <Card title="Terminal Folders" icon="stop">
+    Use `terminal: true` for sensitive folders to prevent inheritance from less-restrictive parents.
+  </Card>
+  <Card title="Audit Trail" icon="file-lines">
+    All permission changes are logged as `FileChangeEvent`s, creating an audit trail.
+  </Card>
+</CardGroup>
+
+<Warning>
+**Permission files are synced to peers.** Anyone with read access to a folder can see its `syft.pub.yaml`. Don't put secrets in permission files.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    Understand the overall system design
+  </Card>
+  <Card title="Datasites" icon="database" href="/concepts/datasites">
+    Learn about data owner and data scientist roles
+  </Card>
+  <Card title="Job Policies" icon="gavel" href="/guides/auto-approve-jobs">
+    Set up automatic job approval policies
+  </Card>
+  <Card title="Permission API" icon="code" href="/api/permissions/acl-service">
+    Explore the syft-perm API
+  </Card>
+</CardGroup>

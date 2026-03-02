@@ -1,0 +1,485 @@
+---
+title: Sync Operations
+description: Understanding sync functionality, connection management, and data flow
+---
+
+## Overview
+
+SyftBox uses a bi-directional sync system built on Google Drive to enable secure data sharing between Data Owners (DO) and Data Scientists (DS). The sync system manages:
+
+- File change detection and propagation
+- Permission-based access control
+- Event-driven state synchronization
+- Connection routing and management
+
+## Architecture
+
+The sync system consists of two main components:
+
+### DatasiteOwnerSyncer (Data Owner)
+
+Handles downloads, permission checking, and outbox management for Data Owners.
+
+```python
+from syft_client.sync.sync.datasite_owner_syncer import (
+    DatasiteOwnerSyncer,
+    DatasiteOwnerSyncerConfig
+)
+
+# Typically created automatically via login_do()
+client = sc.login_do(email="owner@example.com")
+# Access via: client.datasite_owner_syncer
+```
+
+**Responsibilities:**
+- Pull file change events from peer inboxes
+- Verify permissions before accepting changes
+- Write approved files to local filesystem
+- Track file hashes in event cache
+- Send file change events to peer outboxes
+- Manage checkpoints for efficient syncing
+
+---
+
+### DatasiteWatcherSyncer (Data Scientist)
+
+Handles file change detection and pushing to Data Owner inboxes.
+
+```python
+from syft_client.sync.sync.datasite_watcher_syncer import (
+    DatasiteWatcherSyncer,
+    DatasiteWatcherSyncerConfig
+)
+
+# Typically created automatically via login_ds()
+client = sc.login_ds(email="scientist@example.com")
+# Access via: client.datasite_watcher_syncer
+```
+
+**Responsibilities:**
+- Monitor local file changes
+- Create ProposedFileChange messages
+- Send changes to Data Owner inboxes
+- Pull approved changes from Data Owner outboxes
+- Update local cache of file states
+
+---
+
+## Sync Flow
+
+### Data Scientist → Data Owner
+
+1. **DS detects change:** File written to `~/SyftBox_{email}/{dataowner_email}/...`
+2. **DS creates proposal:** `ProposedFileChange` with path, content, old hash
+3. **DS sends to inbox:** Message placed in DO's Google Drive inbox
+4. **DO syncs:** Pulls from inbox during `sync()`
+5. **DO checks permissions:** Verifies DS has write access via SyftPerm
+6. **DO accepts/rejects:** Writes file locally or discards based on permissions
+7. **DO sends event:** Places `FileChangeEvent` in DS's outbox
+8. **DS pulls event:** Updates cache with new hash during next `sync()`
+
+### Data Owner → Data Scientist
+
+1. **DO creates dataset:** `client.create_dataset(name="data", users=["ds@example.com"])`
+2. **DO shares via collection:** Files uploaded to Google Drive collection folder
+3. **DS syncs:** Discovers collection during `sync_down()`
+4. **DS downloads:** Pulls dataset files to local cache
+5. **DS accesses:** Reads files via `client.datasets.get(name="data")`
+
+---
+
+## Sync Methods
+
+### sync()
+
+Primary sync method on `SyftboxManager`.
+
+```python
+# Basic sync
+client.sync()
+
+# Sync with checkpoint control
+client.sync(auto_checkpoint=True, checkpoint_threshold=100)
+```
+
+**Data Owner behavior:**
+```python
+def sync(self, auto_checkpoint=True, checkpoint_threshold=50):
+    # 1. Load peers from connection
+    self.load_peers()
+    
+    # 2. Get approved peers
+    peer_emails = [peer.email for peer in self.version_manager.approved_peers]
+    
+    # 3. Filter to compatible versions
+    compatible_emails = self.version_manager.get_compatible_peer_emails(
+        peer_emails, warn_incompatible=True
+    )
+    
+    # 4. Sync with compatible peers
+    self.datasite_owner_syncer.sync(compatible_emails)
+    
+    # 5. Auto-checkpoint if threshold exceeded
+    if auto_checkpoint:
+        self.try_create_checkpoint(checkpoint_threshold)
+```
+
+**Data Scientist behavior:**
+```python
+def sync(self, auto_checkpoint=True, checkpoint_threshold=50):
+    # 1. Load connected peers
+    self.load_peers()
+    
+    # 2. Get outstanding peers
+    peer_emails = [peer.email for peer in self.version_manager.outstanding_peers]
+    
+    # 3. Warn if all incompatible
+    self.version_manager.warn_if_all_peers_incompatible(peer_emails)
+    
+    # 4. Sync down from peers
+    self.datasite_watcher_syncer.sync_down(peer_emails)
+```
+
+---
+
+### Auto-Sync Behavior
+
+Certain properties trigger automatic sync before returning data:
+
+```python
+import os
+
+# Default: auto-sync enabled
+peers = client.peers  # Syncs first
+jobs = client.jobs    # Syncs first
+datasets = client.datasets  # Syncs first
+
+# Disable auto-sync globally
+os.environ["PRE_SYNC"] = "false"
+
+peers = client.peers  # No sync
+jobs = client.jobs    # No sync
+datasets = client.datasets  # No sync
+```
+
+**Properties with auto-sync:**
+- `client.peers` - Syncs before returning peer list
+- `client.jobs` - Syncs before returning job list  
+- `client.datasets` - Syncs before returning dataset manager
+
+**Methods with auto-sync:**
+- `client.process_approved_jobs()` - Syncs after job execution
+
+**Control via environment:**
+- `PRE_SYNC=true` (default): Auto-sync enabled
+- `PRE_SYNC=false`: Auto-sync disabled
+
+---
+
+## Connection Management
+
+### ConnectionRouter
+
+Manages multiple platform connections (Google Drive, future: Dropbox, S3, etc.)
+
+```python
+from syft_client.sync.connections.connection_router import ConnectionRouter
+
+# Accessed via syncers
+router = client.datasite_owner_syncer.connection_router
+# or
+router = client.datasite_watcher_syncer.connection_router
+```
+
+**Key methods:**
+- `write_event_messages_to_inbox()` - Send messages to peer inbox
+- `write_event_messages_to_outbox_do()` - Send messages to peer outbox (DO)
+- `pull_from_inbox()` - Retrieve messages from inbox
+- `pull_from_outbox()` - Retrieve messages from outbox (DS)
+- `create_dataset_collection_folder()` - Create shared dataset folder
+- `share_dataset_collection()` - Grant access to users
+
+---
+
+### GDriveConnection
+
+Google Drive implementation of platform connection.
+
+```python
+from syft_client.sync.connections.drive.gdrive_transport import GDriveConnection
+from syft_client.sync.connections.drive.grdrive_config import GdriveConnectionConfig
+
+# Created automatically during login
+config = GdriveConnectionConfig(
+    email="user@example.com",
+    token_path="/path/to/token.json"
+)
+connection = GDriveConnection.from_config(config)
+```
+
+**Features:**
+- OAuth2 authentication
+- File upload/download via Drive API
+- Permission management (share with users)
+- Folder creation and hierarchy management
+- Batch operations for efficiency
+
+---
+
+## Event Caching
+
+### DataSiteOwnerEventCache (Data Owner)
+
+Tracks file hashes and events for Data Owners.
+
+```python
+from syft_client.sync.sync.caches.datasite_owner_cache import (
+    DataSiteOwnerEventCache,
+    DataSiteOwnerEventCacheConfig
+)
+
+# Access via syncer
+cache = client.datasite_owner_syncer.event_cache
+
+# Check current hash
+current_hash = cache.get_current_hash("peer@example.com/path/to/file.txt")
+
+# Get all file hashes
+all_hashes = dict(cache.file_hashes)
+```
+
+**Storage:**
+- In-memory: Dict of file paths → hashes
+- Filesystem: `{syftbox_folder}-events/` directory (unless `use_in_memory_cache=True`)
+
+**Tracked data:**
+- File hashes (current state)
+- Event history (for checkpointing)
+- Peer permissions
+
+---
+
+### DataSiteWatcherCache (Data Scientist)
+
+Tracks file states for Data Scientists.
+
+```python
+from syft_client.sync.sync.caches.datasite_watcher_cache import (
+    DataSiteWatcherCache,
+    DataSiteWatcherCacheConfig
+)
+
+# Access via syncer
+cache = client.datasite_watcher_syncer.datasite_watcher_cache
+
+# Check current hash
+current_hash = cache.current_hash_for_file(Path("dataowner@example.com/file.txt"))
+```
+
+**Storage:**
+- In-memory: Dict of file paths → hashes
+- Filesystem: `{syftbox_folder}-event-messages/` directory
+
+**Tracked data:**
+- File hashes (to detect changes)
+- Outbox message timestamps
+- Dataset collection metadata
+
+---
+
+## Checkpoints
+
+Checkpoints enable fast initial sync by providing a snapshot of all files and hashes.
+
+### Creating Checkpoints
+
+```python
+# Manual checkpoint
+checkpoint = client.create_checkpoint()
+
+# Automatic checkpoint (default in sync)
+client.sync(auto_checkpoint=True, checkpoint_threshold=50)
+
+# Conditional checkpoint
+if client.should_create_checkpoint(threshold=100):
+    client.create_checkpoint()
+```
+
+### Checkpoint Structure
+
+```python
+from syft_client.sync.checkpoints.checkpoint import Checkpoint
+
+checkpoint = Checkpoint(
+    file_hashes={  # All tracked files and their hashes
+        "peer1@example.com/path/file1.txt": "abc123...",
+        "peer2@example.com/data/file2.csv": "def456...",
+    },
+    timestamp="2026-03-02T10:30:00Z",
+    event_count=150  # Events since last checkpoint
+)
+```
+
+### Checkpoint Benefits
+
+**Without checkpoint:**
+- New peer downloads all historical events (could be thousands)
+- Replays each event to build current state
+- Slow for long-running Data Owners
+
+**With checkpoint:**
+- New peer downloads single checkpoint file
+- Instantly has current state
+- Only processes events since checkpoint
+
+**Recommendation:** Create checkpoint every 50-100 events (default threshold: 50)
+
+---
+
+## Version Compatibility
+
+Sync operations check version compatibility to prevent protocol mismatches.
+
+### Version Manager
+
+```python
+# Access via client
+version_manager = client.version_manager
+
+# Check peer compatibility
+if version_manager.is_peer_version_compatible("peer@example.com"):
+    print("Compatible")
+
+# Get compatible peer emails
+compatible = version_manager.get_compatible_peer_emails(
+    ["peer1@example.com", "peer2@example.com"],
+    warn_incompatible=True
+)
+```
+
+### Version Checks
+
+**During sync:**
+- Data Owner only syncs with compatible peers
+- Incompatible peers receive warnings
+- Events from incompatible peers are ignored
+
+**During job submission:**
+```python
+# Default: checks version before submission
+client.submit_python_job(user="owner@example.com", script="job.py")
+# Raises error if incompatible
+
+# Force submission regardless of version
+client.submit_python_job(
+    user="owner@example.com",
+    script="job.py",
+    force_submission=True
+)
+```
+
+**During job processing:**
+```python
+# Default: skips jobs from incompatible peers
+client.process_approved_jobs()
+# Prints warnings for skipped jobs
+
+# Force execution regardless of version
+client.process_approved_jobs(force_execution=True)
+```
+
+---
+
+## Performance Considerations
+
+### Batch Operations
+
+```python
+# Good: Single sync covers all changes
+for i in range(100):
+    client.dataset_manager.create_local_file(f"file{i}.txt")
+client.sync()  # One sync for all files
+
+# Bad: Syncing after each change
+for i in range(100):
+    client.dataset_manager.create_local_file(f"file{i}.txt")
+    client.sync()  # 100 syncs!
+```
+
+### Checkpoint Frequency
+
+```python
+# Too frequent: Overhead from checkpoint creation
+client.sync(checkpoint_threshold=5)  # Checkpoint every 5 events
+
+# Too infrequent: Slow initial sync for new peers
+client.sync(checkpoint_threshold=10000)  # Rarely creates checkpoints
+
+# Recommended: Balance overhead vs sync speed
+client.sync(checkpoint_threshold=50)  # Default
+```
+
+### Manual Sync Control
+
+```python
+import os
+
+# Disable auto-sync for batch operations
+os.environ["PRE_SYNC"] = "false"
+
+# Multiple operations without sync
+for peer in client.peers:  # No sync
+    pass
+    
+for job in client.jobs:  # No sync
+    pass
+
+# Single manual sync at the end
+client.sync()
+
+# Re-enable auto-sync
+os.environ["PRE_SYNC"] = "true"
+```
+
+---
+
+## Troubleshooting
+
+### Sync Not Detecting Changes
+
+```python
+# Force cache clear and re-sync
+client._clear_caches()
+client.sync()
+```
+
+### Orphaned Files After Deletion
+
+```python
+# Clean up orphaned Google Drive files
+client.delete_syftbox(verbose=True)
+# This finds and deletes orphaned files by name pattern
+```
+
+### Version Incompatibility Issues
+
+```python
+# Check peer versions
+for peer in client.peers:
+    version = client.version_manager.get_peer_version(peer.email)
+    print(f"{peer.email}: {version}")
+
+# Force operations despite incompatibility
+client.sync()  # Warns but continues
+client.submit_python_job(user="peer@example.com", script="job.py", force_submission=True)
+client.process_approved_jobs(force_execution=True)
+```
+
+---
+
+## See Also
+
+- [SyftboxManager](/api/client/syftbox-manager) - Main client interface
+- [Login Functions](/api/client/login) - Creating authenticated clients
+- [Datasets Guide](/api/datasets/dataset-manager) - Working with shared datasets
+- [Jobs Guide](/api/jobs/job-client) - Submitting and processing jobs

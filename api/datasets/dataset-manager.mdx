@@ -1,0 +1,316 @@
+---
+title: SyftDatasetManager
+description: Manage datasets across SyftBox datasites
+---
+
+## Overview
+
+`SyftDatasetManager` is the primary interface for creating, retrieving, and managing datasets in SyftBox. It handles dataset storage, permissions, and synchronization across datasites.
+
+## Constructor
+
+```python
+from syft_datasets import SyftDatasetManager
+
+manager = SyftDatasetManager(
+    syftbox_folder_path="/path/to/syftbox",
+    email="user@example.com"
+)
+```
+
+<ParamField path="syftbox_folder_path" type="PathLike" required>
+  Path to the SyftBox folder on the local filesystem
+</ParamField>
+
+<ParamField path="email" type="str" required>
+  Email address associated with the datasite
+</ParamField>
+
+## Class Methods
+
+### from_config
+
+Create a `SyftDatasetManager` from an existing `SyftBoxConfig`.
+
+```python
+manager = SyftDatasetManager.from_config(config)
+```
+
+<ParamField path="config" type="SyftBoxConfig" required>
+  SyftBox configuration object
+</ParamField>
+
+<ResponseField name="return" type="SyftDatasetManager">
+  Configured dataset manager instance
+</ResponseField>
+
+## Methods
+
+### create
+
+Create a new dataset with mock and private data.
+
+```python
+dataset = manager.create(
+    name="my_dataset",
+    mock_path="./data/mock",
+    private_path="./data/private",
+    summary="Sample dataset for analysis",
+    readme_path="./README.md",
+    tags=["healthcare", "research"],
+    users=["collaborator@example.com"]
+)
+```
+
+<ParamField path="name" type="str" required>
+  Unique identifier for the dataset. Only alphanumeric characters, underscores, and hyphens are allowed.
+</ParamField>
+
+<ParamField path="mock_path" type="PathLike" required>
+  Path to the mock data (file or directory) that will be shared publicly
+</ParamField>
+
+<ParamField path="private_path" type="PathLike" required>
+  Path to the private data (file or directory) that remains local
+</ParamField>
+
+<ParamField path="summary" type="str | None">
+  Short summary describing the dataset
+</ParamField>
+
+<ParamField path="readme_path" type="Path | None">
+  Path to a markdown README file to include in the dataset
+</ParamField>
+
+<ParamField path="location" type="str | None">
+  Location identifier for datasets hosted on remote locations requiring manual syncing (e.g., 'high-side-1234')
+</ParamField>
+
+<ParamField path="tags" type="list[str] | None">
+  Tags for categorizing and discovering the dataset
+</ParamField>
+
+<ParamField path="users" type="list[str] | str | None">
+  Users to share the dataset with. Can be:
+  - List of email addresses
+  - `"any"` to share with all users
+  - `None` (default) to share with no one
+</ParamField>
+
+<ResponseField name="return" type="Dataset">
+  The created Dataset object with metadata and file URLs
+</ResponseField>
+
+**Raises:**
+- `ValueError`: If dataset name contains invalid characters
+- `FileNotFoundError`: If mock_path or readme_path doesn't exist
+- `FileExistsError`: If dataset directory already exists and is not empty
+
+### get
+
+Retrieve a dataset by name.
+
+```python
+dataset = manager.get("my_dataset")
+
+# Get dataset from another datasite
+dataset = manager.get("my_dataset", datasite="user@example.com")
+```
+
+<ParamField path="name" type="str" required>
+  Name of the dataset to retrieve
+</ParamField>
+
+<ParamField path="datasite" type="str | None">
+  Email of the datasite owner. Defaults to the current user's email
+</ParamField>
+
+<ResponseField name="return" type="Dataset">
+  The requested Dataset object
+</ResponseField>
+
+**Raises:**
+- `FileNotFoundError`: If dataset doesn't exist
+
+### get_all
+
+Retrieve all accessible datasets with optional filtering and pagination.
+
+```python
+# Get all datasets
+all_datasets = manager.get_all()
+
+# Get datasets from specific datasite
+datasets = manager.get_all(datasite="user@example.com")
+
+# Get datasets with pagination and sorting
+datasets = manager.get_all(
+    limit=10,
+    offset=0,
+    order_by="created_at",
+    sort_order="desc"
+)
+```
+
+<ParamField path="datasite" type="str | None">
+  Filter datasets by datasite owner email
+</ParamField>
+
+<ParamField path="limit" type="int | None">
+  Maximum number of datasets to return
+</ParamField>
+
+<ParamField path="offset" type="int | None">
+  Number of datasets to skip (for pagination)
+</ParamField>
+
+<ParamField path="order_by" type="str | None">
+  Field name to sort by (e.g., "created_at", "name")
+</ParamField>
+
+<ParamField path="sort_order" type="Literal['asc', 'desc']" default="asc">
+  Sort order: ascending or descending
+</ParamField>
+
+<ResponseField name="return" type="list[Dataset]">
+  List of Dataset objects (as a TableList for nice display)
+</ResponseField>
+
+### delete
+
+Delete a dataset from the datasite.
+
+```python
+# Delete with confirmation prompt
+manager.delete("my_dataset")
+
+# Delete without confirmation
+manager.delete("my_dataset", require_confirmation=False)
+```
+
+<ParamField path="name" type="str" required>
+  Name of the dataset to delete
+</ParamField>
+
+<ParamField path="datasite" type="str | None">
+  Email of the datasite owner. Defaults to current user. Must be your own datasite.
+</ParamField>
+
+<ParamField path="require_confirmation" type="bool" default="true">
+  Whether to prompt for confirmation before deleting
+</ParamField>
+
+**Raises:**
+- `ValueError`: If attempting to delete another user's dataset
+- `FileNotFoundError`: If dataset doesn't exist
+
+<Warning>
+Deleting a dataset removes both mock and private metadata directories. Private data files are only deleted if they're managed by SyftBox.
+</Warning>
+
+### share_dataset
+
+Share an existing dataset with users.
+
+```python
+# Share with specific users
+manager.share_dataset("my_dataset", users=["user1@example.com", "user2@example.com"])
+
+# Share with everyone
+manager.share_dataset("my_dataset", users="any")
+```
+
+<ParamField path="name" type="str" required>
+  Name of the dataset to share
+</ParamField>
+
+<ParamField path="users" type="list[str] | str" required>
+  List of email addresses or "any" to share with all users
+</ParamField>
+
+**Raises:**
+- `ValueError`: If dataset doesn't exist
+
+## Special Methods
+
+### Indexing
+
+Access datasets by name or index.
+
+```python
+# Access by name
+dataset = manager["my_dataset"]
+
+# Access by index
+first_dataset = manager[0]
+```
+
+### Iteration
+
+Iterate over all datasets.
+
+```python
+for dataset in manager:
+    print(dataset.name)
+```
+
+### Length
+
+Get the total number of datasets.
+
+```python
+total = len(manager)
+```
+
+## Properties
+
+<ResponseField name="syftbox_config" type="SyftBoxConfig">
+  The SyftBox configuration used by this manager
+</ResponseField>
+
+## Usage Example
+
+```python
+from syft_datasets import SyftDatasetManager
+
+# Initialize manager
+manager = SyftDatasetManager(
+    syftbox_folder_path="~/SyftBox",
+    email="researcher@university.edu"
+)
+
+# Create a new dataset
+dataset = manager.create(
+    name="patient_records",
+    mock_path="./synthetic_data",
+    private_path="./real_data",
+    summary="Synthetic patient records for model training",
+    tags=["healthcare", "synthetic"],
+    users=["collaborator@hospital.org"]
+)
+
+print(f"Created dataset: {dataset.name}")
+print(f"Mock data location: {dataset.mock_dir}")
+
+# List all datasets
+all_datasets = manager.get_all()
+print(f"Total datasets: {len(all_datasets)}")
+
+# Retrieve a specific dataset
+my_dataset = manager.get("patient_records")
+print(f"Dataset summary: {my_dataset.summary}")
+```
+
+## Constants
+
+<ResponseField name="FOLDER_NAME" type="str" value="syft_datasets">
+  Default folder name for storing datasets
+</ResponseField>
+
+<ResponseField name="METADATA_FILENAME" type="str" value="dataset.yaml">
+  Filename for dataset metadata
+</ResponseField>
+
+<ResponseField name="SHARE_WITH_ANY" type="str" value="any">
+  Constant for sharing datasets with all users
+</ResponseField>

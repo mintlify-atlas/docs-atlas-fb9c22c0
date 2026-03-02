@@ -1,0 +1,473 @@
+---
+title: Auto-Approval
+description: Automatic approval rules for jobs and peer requests
+---
+
+## Overview
+
+Auto-approval allows Data Owners to define rules for automatically approving:
+- **Jobs** - Based on script hash, filenames, and submitter
+- **Peers** - Based on email domain whitelist
+
+Runs as a background service checking for pending requests at regular intervals.
+
+## Job Auto-Approval
+
+### JobApprovalHandler
+
+```python
+from syft_bg.approve.handlers import JobApprovalHandler
+from syft_bg.approve.config import JobApprovalConfig
+
+client = sc.login_do(email="owner@example.com", token_path="token.json")
+
+config = JobApprovalConfig(
+    enabled=True,
+    peers_only=True,
+    required_filenames=["main.py", "params.json"],
+    required_scripts={
+        "main.py": "sha256:a1b2c3d4..."
+    },
+    allowed_users=["scientist@example.com"]
+)
+
+handler = JobApprovalHandler(client, config, verbose=True)
+approved = handler.check_and_approve()
+```
+
+<ParamField path="__init__" type="constructor">
+  **Parameters**:
+  - `client: SyftboxManager` - Authenticated client from `sc.login_do()`
+  - `config: JobApprovalConfig` - Approval criteria configuration
+  - `state: Optional[StateManager]` - State tracker to prevent duplicates
+  - `on_approve: Optional[Callable]` - Callback function when job approved
+  - `verbose: bool = True` - Print approval activity
+</ParamField>
+
+<ParamField path="check_and_approve" type="method">
+  Check all pending jobs and approve those matching criteria
+  
+  **Returns**: `list[JobInfo]` - List of approved jobs
+  
+  Automatically calls `client.process_approved_jobs()` after approvals.
+</ParamField>
+
+### JobApprovalConfig
+
+```python
+from syft_bg.approve.config import JobApprovalConfig
+
+config = JobApprovalConfig(
+    enabled=True,
+    peers_only=True,
+    required_filenames=["main.py", "config.json"],
+    required_scripts={
+        "main.py": "sha256:abc123"
+    },
+    allowed_users=["trusted@example.com"]
+)
+```
+
+<ParamField path="enabled" type="bool">
+  Enable/disable job auto-approval (default: `False`)
+</ParamField>
+
+<ParamField path="peers_only" type="bool">
+  Only approve jobs from approved peers (default: `True`)
+  
+  When enabled, jobs from non-peers are skipped regardless of other criteria.
+</ParamField>
+
+<ParamField path="required_filenames" type="list[str]">
+  Exact filenames that must be present (default: `[]`)
+  
+  ```python
+  required_filenames=["main.py", "params.json"]
+  ```
+  
+  Job must contain **exactly** these files, no more, no less. Extra files cause rejection.
+</ParamField>
+
+<ParamField path="required_scripts" type="dict[str, str]">
+  Filename to hash mapping for content validation (default: `{}`)
+  
+  ```python
+  required_scripts={
+      "main.py": "sha256:a1b2c3d4e5f6",
+      "utils.py": "sha256:123456"
+  }
+  ```
+  
+  Validates file content matches expected hash. Use `syft-bg hash <file>` to generate hashes.
+</ParamField>
+
+<ParamField path="allowed_users" type="list[str]">
+  Whitelist of user emails (default: `[]`)
+  
+  Empty list = allow all approved peers (when `peers_only=True`)
+</ParamField>
+
+### Approval Criteria
+
+A job is approved if **ALL** conditions match:
+
+1. **Status** - Job must be in "inbox" status
+2. **Allowed Users** - If specified, submitter must be in list
+3. **Peers Only** - If enabled, submitter must be approved peer
+4. **Script Hashes** - All required scripts must match expected hash
+5. **Filenames** - Job must contain exactly the required files (no extras)
+
+```python
+from syft_bg.approve.criteria import job_matches_criteria
+
+matches, reason = job_matches_criteria(
+    job=job,
+    config=config,
+    approved_peers=["peer1@example.com", "peer2@example.com"]
+)
+
+if matches:
+    print("Job approved")
+else:
+    print(f"Job rejected: {reason}")
+```
+
+### Generating Script Hashes
+
+```bash
+# Generate SHA256 hash for a script
+syft-bg hash main.py
+# Output: sha256:a1b2c3d4e5f67890abcdef1234567890...
+
+# Add to config.yaml
+approve:
+  jobs:
+    required_scripts:
+      main.py: "sha256:a1b2c3d4e5f67890abcdef1234567890..."
+```
+
+Supports short hashes for convenience:
+```python
+required_scripts={
+    "main.py": "sha256:a1b2c3"  # Matches first 6 characters
+}
+```
+
+## Peer Auto-Approval
+
+### PeerApprovalHandler
+
+```python
+from syft_bg.approve.handlers import PeerApprovalHandler
+from syft_bg.approve.config import PeerApprovalConfig
+
+client = sc.login_do(email="owner@example.com", token_path="token.json")
+
+config = PeerApprovalConfig(
+    enabled=True,
+    approved_domains=["university.edu", "research.org"],
+    auto_share_datasets=["public_dataset"]
+)
+
+handler = PeerApprovalHandler(client, config, verbose=True)
+approved_peers = handler.check_and_approve()
+```
+
+<ParamField path="__init__" type="constructor">
+  **Parameters**:
+  - `client: SyftboxManager` - Authenticated client from `sc.login_do()`
+  - `config: PeerApprovalConfig` - Approval criteria
+  - `state: Optional[StateManager]` - State tracker
+  - `on_approve: Optional[Callable]` - Callback when peer approved
+  - `verbose: bool = True` - Print approval activity
+</ParamField>
+
+<ParamField path="check_and_approve" type="method">
+  Check all pending peers and approve those matching criteria
+  
+  **Returns**: `list[str]` - List of approved peer emails
+  
+  Automatically shares configured datasets with newly approved peers.
+</ParamField>
+
+### PeerApprovalConfig
+
+```python
+from syft_bg.approve.config import PeerApprovalConfig
+
+config = PeerApprovalConfig(
+    enabled=True,
+    approved_domains=["university.edu", "openmined.org"],
+    auto_share_datasets=["census_data", "research_samples"]
+)
+```
+
+<ParamField path="enabled" type="bool">
+  Enable/disable peer auto-approval (default: `False`)
+</ParamField>
+
+<ParamField path="approved_domains" type="list[str]">
+  Email domain whitelist (default: `[]`)
+  
+  ```python
+  approved_domains=["university.edu", "research.org"]
+  ```
+  
+  Approves peers with email addresses ending in these domains.
+</ParamField>
+
+<ParamField path="auto_share_datasets" type="list[str]">
+  Datasets to automatically share with approved peers (default: `[]`)
+  
+  After approval, calls `client.share_dataset(name, peer_email)` for each dataset.
+</ParamField>
+
+## Configuration File
+
+### config.yaml Structure
+
+```yaml
+do_email: owner@example.com
+syftbox_root: ~/SyftBox
+
+approve:
+  interval: 5  # Check every 5 seconds
+  
+  jobs:
+    enabled: true
+    peers_only: true
+    required_filenames:
+      - main.py
+      - params.json
+    required_scripts:
+      main.py: "sha256:a1b2c3d4e5f6"
+    allowed_users:
+      - scientist@example.com
+  
+  peers:
+    enabled: true
+    approved_domains:
+      - university.edu
+      - openmined.org
+    auto_share_datasets:
+      - public_census_data
+```
+
+### CLI Configuration
+
+```bash
+# Initialize with auto-approval
+syft-bg init \
+  --email owner@example.com \
+  --approve-jobs \
+  --approve-peers \
+  --approved-domains university.edu,openmined.org
+
+# Enable peers-only restriction
+syft-bg init --jobs-peers-only
+
+# Set required filenames
+syft-bg init --filenames main.py,params.json
+
+# Set allowed users
+syft-bg init --allowed-users scientist@example.com,researcher@university.edu
+```
+
+## Background Service
+
+### Starting Auto-Approval Service
+
+```bash
+# Start all services
+syft-bg start
+
+# Start only approval service
+syft-bg start approve
+
+# Check status
+syft-bg status
+```
+
+### Service Management
+
+```bash
+# View approval logs
+syft-bg logs approve
+syft-bg logs approve -f  # Follow logs
+
+# Stop service
+syft-bg stop approve
+
+# Restart with new config
+syft-bg restart approve
+```
+
+### Example Output
+
+```
+[ApprovalService] Started (interval: 5s)
+Approved: income_analysis from scientist@example.com
+Approved peer: researcher@university.edu
+  Shared dataset: census_data
+Skipped: suspicious_job (domain hacker.com not in approved_domains)
+Skipped: unauthorized_job (user not in allowed_users)
+```
+
+## State Management
+
+Prevents re-approving the same jobs/peers:
+
+```python
+from syft_bg.common.state import StateManager
+
+state = StateManager('~/.syft-creds/state.json')
+
+handler = JobApprovalHandler(
+    client=client,
+    config=config,
+    state=state  # Tracks approved jobs
+)
+```
+
+State file format:
+```json
+{
+  "approved_jobs": {
+    "job_123": {
+      "submitted_by": "scientist@example.com",
+      "timestamp": "2024-01-15T10:30:00"
+    }
+  },
+  "approved_peers": {
+    "peer_researcher@university.edu": {
+      "domain": "university.edu",
+      "timestamp": "2024-01-15T10:35:00"
+    }
+  }
+}
+```
+
+## Callbacks
+
+### Custom Actions on Approval
+
+```python
+def on_job_approved(job: JobInfo):
+    print(f"Approved job: {job.name}")
+    # Send custom notification
+    # Log to external system
+    # etc.
+
+def on_peer_approved(peer_email: str):
+    print(f"Approved peer: {peer_email}")
+    # Send welcome email
+    # Update external database
+
+job_handler = JobApprovalHandler(
+    client=client,
+    config=job_config,
+    on_approve=on_job_approved
+)
+
+peer_handler = PeerApprovalHandler(
+    client=client,
+    config=peer_config,
+    on_approve=on_peer_approved
+)
+```
+
+## Security Considerations
+
+### Script Hash Validation
+
+**Why it matters**: Prevents malicious code execution
+
+```python
+# INSECURE: Approving by filename only
+config = JobApprovalConfig(
+    required_filenames=["main.py"]  # Attacker can submit any main.py!
+)
+
+# SECURE: Validate content hash
+config = JobApprovalConfig(
+    required_scripts={
+        "main.py": "sha256:abc123"  # Only approve known code
+    }
+)
+```
+
+### Peers-Only Mode
+
+**Why it matters**: Prevents unknown users from running jobs
+
+```python
+config = JobApprovalConfig(
+    peers_only=True,  # Require mutual peering
+    allowed_users=[]  # Empty = all approved peers
+)
+```
+
+### Domain Whitelisting
+
+**Why it matters**: Prevents impersonation attacks
+
+```python
+# Only approve peers from trusted institutions
+config = PeerApprovalConfig(
+    approved_domains=[
+        "university.edu",
+        "openmined.org"
+    ]
+)
+```
+
+## Best Practices
+
+1. **Always use script hash validation** - Don't approve jobs based on filename alone
+2. **Enable peers-only mode** - Require mutual peering before running jobs
+3. **Use short check intervals** - 5 seconds recommended for approval service
+4. **Monitor approval logs** - Review `syft-bg logs approve` regularly
+5. **Start with restrictive rules** - Gradually relax as trust increases
+6. **Combine with notifications** - Get email alerts for approved jobs
+
+## Headless Mode
+
+For automated deployments without user interaction:
+
+```bash
+# Non-interactive setup
+syft-bg init \
+  --email owner@example.com \
+  --quiet \
+  --approve-jobs \
+  --approve-peers \
+  --approved-domains university.edu \
+  --skip-oauth
+
+# Requires tokens to already exist at:
+# ~/.syft-creds/gmail_token.json
+# ~/.syft-creds/token_do.json
+```
+
+## Systemd Integration
+
+Auto-start on boot (Linux):
+
+```bash
+# Install systemd service
+syft-bg install
+
+# Enable auto-start
+systemctl --user enable syft-bg
+
+# Start service
+systemctl --user start syft-bg
+
+# Check status
+systemctl --user status syft-bg
+```
+
+## See Also
+
+- [Monitoring Services](/api/background/monitoring) - Job and peer monitors
+- [Notifications](/api/background/notifications) - Email notification system

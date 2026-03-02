@@ -1,0 +1,465 @@
+---
+title: Access Control Types
+description: Core types for managing user access and permissions
+---
+
+## Overview
+
+This page documents the core types used for access control in Syft: `ACLRequest`, `AccessLevel`, `User`, and `Access`. These types work together to define who can access what resources and at what permission level.
+
+## ACLRequest
+
+Represents a request to access a resource with a specific permission level.
+
+```python
+from syft_permissions import ACLRequest
+```
+
+### Fields
+
+<ParamField path="path" type="str" required>
+  Relative path within the datasite to the resource being accessed. The path is relative to the datasite root.
+</ParamField>
+
+<ParamField path="level" type="AccessLevel" required>
+  The level of access being requested (READ, WRITE, or ADMIN).
+</ParamField>
+
+<ParamField path="user" type="User" required>
+  The user making the access request.
+</ParamField>
+
+### Example
+
+```python
+from syft_permissions import ACLRequest, AccessLevel, User
+
+request = ACLRequest(
+    path="reports/q1.csv",
+    level=AccessLevel.READ,
+    user=User(id="alice@company.com")
+)
+```
+
+### Usage with ACLService
+
+```python
+from syft_permissions import ACLService, ACLRequest, AccessLevel, User
+
+service = ACLService(owner="admin@example.com")
+# ... load permissions ...
+
+# Check if alice can read the file
+request = ACLRequest(
+    path="reports/q1.csv",
+    level=AccessLevel.READ,
+    user=User(id="alice@company.com")
+)
+
+if service.can_access(request):
+    # Grant access to the file
+    with open("reports/q1.csv") as f:
+        data = f.read()
+else:
+    # Deny access
+    raise PermissionError("Access denied")
+```
+
+## AccessLevel
+
+Enumeration of permission levels, implemented as an `IntEnum` for hierarchical comparison.
+
+```python
+from syft_permissions import AccessLevel
+```
+
+### Values
+
+<ParamField path="READ" type="int" default="1">
+  Read-only access to view or download resources.
+</ParamField>
+
+<ParamField path="WRITE" type="int" default="2">
+  Write access to modify or upload resources. Implies READ access.
+</ParamField>
+
+<ParamField path="ADMIN" type="int" default="4">
+  Administrative access to manage permissions and perform all operations. Implies both WRITE and READ access.
+</ParamField>
+
+### Access Hierarchy
+
+Access levels are hierarchical:
+
+- **ADMIN** implies **WRITE** and **READ**
+- **WRITE** implies **READ**
+- **READ** is the base level
+
+This hierarchy is enforced automatically when checking permissions.
+
+### Example
+
+```python
+from syft_permissions import AccessLevel
+
+# Using access levels
+print(AccessLevel.READ)    # 1
+print(AccessLevel.WRITE)   # 2
+print(AccessLevel.ADMIN)   # 4
+
+# Comparison (due to IntEnum)
+print(AccessLevel.ADMIN > AccessLevel.WRITE)  # True
+print(AccessLevel.WRITE > AccessLevel.READ)   # True
+```
+
+### Permission Checking Logic
+
+When a user has a certain access level, they automatically have all lower levels:
+
+```python
+from syft_permissions import Rule, Access, AccessLevel
+
+# User has ADMIN access
+rule = Rule(
+    pattern="**",
+    access=Access(admin=["alice@company.com"])
+)
+
+# Alice can:
+# - Perform ADMIN operations ✓
+# - Perform WRITE operations ✓ (implied)
+# - Perform READ operations ✓ (implied)
+```
+
+```python
+# User has WRITE access
+rule = Rule(
+    pattern="**",
+    access=Access(write=["bob@company.com"])
+)
+
+# Bob can:
+# - Perform ADMIN operations ✗
+# - Perform WRITE operations ✓
+# - Perform READ operations ✓ (implied)
+```
+
+```python
+# User has READ access
+rule = Rule(
+    pattern="**",
+    access=Access(read=["charlie@company.com"])
+)
+
+# Charlie can:
+# - Perform ADMIN operations ✗
+# - Perform WRITE operations ✗
+# - Perform READ operations ✓
+```
+
+## User
+
+Represents a user in the permission system.
+
+```python
+from syft_permissions import User
+```
+
+### Fields
+
+<ParamField path="id" type="str" required>
+  User identifier, typically an email address. Used for matching against access control lists and templates.
+</ParamField>
+
+### Example
+
+```python
+from syft_permissions import User
+
+user = User(id="alice@company.com")
+print(user.id)  # "alice@company.com"
+```
+
+### Owner vs Regular Users
+
+The datasite owner (specified in `ACLService`) is a special user who bypasses all permission checks:
+
+```python
+from syft_permissions import ACLService, ACLRequest, AccessLevel, User
+
+service = ACLService(owner="admin@example.com")
+
+# Owner can access anything, even with no rules defined
+owner_request = ACLRequest(
+    path="any/path/anywhere",
+    level=AccessLevel.ADMIN,
+    user=User(id="admin@example.com")
+)
+
+service.can_access(owner_request)  # True (owner bypass)
+
+# Regular user cannot access without matching rules
+user_request = ACLRequest(
+    path="any/path/anywhere",
+    level=AccessLevel.READ,
+    user=User(id="alice@company.com")
+)
+
+service.can_access(user_request)  # False (no rules)
+```
+
+## Access
+
+Defines access control lists (ACLs) specifying which users have which permissions.
+
+```python
+from syft_permissions import Access
+```
+
+### Fields
+
+<ParamField path="admin" type="list[str]" default="[]">
+  List of users or patterns with administrative access. Users in this list can perform all operations.
+</ParamField>
+
+<ParamField path="write" type="list[str]" default="[]">
+  List of users or patterns with write access. Users in this list can modify resources and have implied read access.
+</ParamField>
+
+<ParamField path="read" type="list[str]" default="[]">
+  List of users or patterns with read access. Users in this list can view resources.
+</ParamField>
+
+### Access List Patterns
+
+Each access list supports multiple pattern types:
+
+#### Exact Email
+
+```python
+Access(read=["alice@example.com"])
+```
+
+Grants access to a specific user by exact email match.
+
+#### Domain Wildcard
+
+```python
+Access(read=["*@company.com"])
+```
+
+Grants access to all users from a specific domain using `fnmatch` pattern matching.
+
+#### Everyone
+
+```python
+Access(read=["*"])
+```
+
+Grants access to all users (public access).
+
+#### USER Placeholder
+
+```python
+Access(write=["USER"])
+```
+
+Special placeholder that behaves differently based on the rule pattern:
+
+- **With template patterns** (`{{.UserEmail}}/**`): Resolves to the requesting user's email
+- **Without template patterns**: Resolves to `*` (any authenticated user)
+
+This enables per-user private directories:
+
+```python
+Rule(
+    pattern="{{.UserEmail}}/**",
+    access=Access(write=["USER"])
+)
+
+# When alice@company.com requests access to "alice@company.com/file.txt":
+# - Pattern resolves to: "alice@company.com/**"
+# - USER resolves to: "alice@company.com"
+# - Result: Match! Alice can write to her own directory.
+
+# When alice@company.com requests access to "bob@company.com/file.txt":
+# - Pattern resolves to: "alice@company.com/**"
+# - Result: No match. Alice cannot access Bob's directory.
+```
+
+### Examples
+
+#### Public Read Access
+
+```python
+from syft_permissions import Access
+
+access = Access(read=["*"])
+```
+
+#### Company-Wide Access
+
+```python
+from syft_permissions import Access
+
+access = Access(
+    read=["*@company.com"],
+    write=["data-team@company.com"]
+)
+```
+
+#### Multi-User Access
+
+```python
+from syft_permissions import Access
+
+access = Access(
+    read=["alice@company.com", "bob@company.com", "*@partner.com"],
+    write=["alice@company.com"],
+    admin=["alice@company.com"]
+)
+```
+
+#### Per-User Directories
+
+```python
+from syft_permissions import Rule, Access
+
+# Users can write to their own directories
+rule = Rule(
+    pattern="{{.UserEmail}}/**",
+    access=Access(write=["USER"])
+)
+```
+
+#### Mixed Patterns
+
+```python
+from syft_permissions import Access
+
+# Combine exact emails, domain wildcards, and public access
+access = Access(
+    admin=["admin@company.com"],
+    write=["*@company.com", "contractor@partner.com"],
+    read=["*"]  # Public read
+)
+```
+
+### Empty Access Lists
+
+Empty access lists deny all access:
+
+```python
+from syft_permissions import Access
+
+# No one can access (except the owner)
+access = Access()
+# Equivalent to:
+# Access(admin=[], write=[], read=[])
+```
+
+## Complete Example
+
+Here's a comprehensive example combining all access control types:
+
+```python
+from syft_permissions import (
+    ACLService,
+    ACLRequest,
+    AccessLevel,
+    User,
+    RuleSet,
+    Rule,
+    Access
+)
+
+# Initialize service
+service = ACLService(owner="admin@company.com")
+
+# Define a ruleset with various access patterns
+ruleset = RuleSet(
+    path="",
+    rules=[
+        # Admin-only configuration
+        Rule(
+            pattern="config/**",
+            access=Access(admin=["admin@company.com"])
+        ),
+        
+        # Per-user private directories
+        Rule(
+            pattern="users/{{.UserEmail}}/**",
+            access=Access(write=["USER"])
+        ),
+        
+        # Team collaboration space
+        Rule(
+            pattern="team/**",
+            access=Access(
+                write=["*@company.com"],
+                read=["*@partner.com"]
+            )
+        ),
+        
+        # Public reports
+        Rule(
+            pattern="reports/**/*.pdf",
+            access=Access(read=["*"])
+        ),
+        
+        # Default: deny all
+        Rule(
+            pattern="**",
+            access=Access()
+        )
+    ]
+)
+
+service.add_ruleset(ruleset)
+
+# Test access for different scenarios
+test_cases = [
+    # Admin can access config
+    ("admin@company.com", "config/settings.yaml", AccessLevel.ADMIN, True),
+    
+    # Regular employee cannot access config
+    ("alice@company.com", "config/settings.yaml", AccessLevel.READ, False),
+    
+    # Users can write to their own directories
+    ("alice@company.com", "users/alice@company.com/notes.txt", AccessLevel.WRITE, True),
+    
+    # Users cannot access other users' directories
+    ("alice@company.com", "users/bob@company.com/notes.txt", AccessLevel.READ, False),
+    
+    # Company employees can write to team space
+    ("alice@company.com", "team/project.txt", AccessLevel.WRITE, True),
+    
+    # Partners can read team space
+    ("contractor@partner.com", "team/project.txt", AccessLevel.READ, True),
+    
+    # Partners cannot write to team space
+    ("contractor@partner.com", "team/project.txt", AccessLevel.WRITE, False),
+    
+    # Anyone can read public reports
+    ("external@other.com", "reports/2024/q1.pdf", AccessLevel.READ, True),
+    
+    # No one can write public reports (no write rule)
+    ("alice@company.com", "reports/2024/q1.pdf", AccessLevel.WRITE, False),
+]
+
+for user_email, path, level, expected in test_cases:
+    request = ACLRequest(
+        path=path,
+        level=level,
+        user=User(id=user_email)
+    )
+    result = service.can_access(request)
+    status = "✓" if result == expected else "✗"
+    print(f"{status} {user_email} {level.name} {path}: {result}")
+```
+
+## See Also
+
+- [ACLService](/api/permissions/acl-service) - Use these types to check permissions
+- [RuleSet](/api/permissions/ruleset) - Define rules using Access
+- [Rule](/api/permissions/ruleset#rule) - Configure access patterns

@@ -1,0 +1,659 @@
+---
+title: SyftboxManager
+description: Core client class for managing datasets, jobs, peers, and sync operations
+---
+
+## Overview
+
+The `SyftboxManager` is the central class for interacting with the Syftbox ecosystem. It provides different capabilities depending on whether you're a Data Owner (DO) or Data Scientist (DS).
+
+**Data Owner capabilities:**
+- Create and manage datasets
+- Approve/reject peer requests
+- Process and execute approved jobs
+- Create checkpoints for efficient syncing
+
+**Data Scientist capabilities:**
+- Access shared datasets
+- Submit jobs to Data Owners
+- Connect with Data Owners as peers
+
+## Creating Instances
+
+Instances are typically created via login functions:
+
+```python
+import syft_client as sc
+
+# Data Scientist
+ds_client = sc.login_ds(email="scientist@example.com")
+
+# Data Owner
+do_client = sc.login_do(email="owner@example.com")
+```
+
+## Class Methods
+
+### for_colab()
+
+Create a SyftboxManager instance for Google Colab environment.
+
+```python
+from syft_client.sync.syftbox_manager import SyftboxManager
+
+# Data Scientist
+client = SyftboxManager.for_colab(
+    email="scientist@example.com",
+    only_ds=True
+)
+
+# Data Owner
+client = SyftboxManager.for_colab(
+    email="owner@example.com",
+    only_datasite_owner=True
+)
+```
+
+<ParamField path="email" type="str" required>
+  User email address.
+</ParamField>
+
+<ParamField path="only_ds" type="bool" default="False">
+  Initialize as Data Scientist (cannot be True with only_datasite_owner).
+</ParamField>
+
+<ParamField path="only_datasite_owner" type="bool" default="False">
+  Initialize as Data Owner (cannot be True with only_ds).
+</ParamField>
+
+<ResponseField name="return" type="SyftboxManager">
+  Configured instance with Colab-specific settings.
+</ResponseField>
+
+---
+
+### for_jupyter()
+
+Create a SyftboxManager instance for Jupyter environment.
+
+```python
+from syft_client.sync.syftbox_manager import SyftboxManager
+
+client = SyftboxManager.for_jupyter(
+    email="user@example.com",
+    only_ds=True,
+    token_path="/path/to/token.json"
+)
+```
+
+<ParamField path="email" type="str" required>
+  User email address.
+</ParamField>
+
+<ParamField path="only_ds" type="bool" default="False">
+  Initialize as Data Scientist.
+</ParamField>
+
+<ParamField path="only_datasite_owner" type="bool" default="False">
+  Initialize as Data Owner.
+</ParamField>
+
+<ParamField path="token_path" type="Path | None" default="None">
+  Path to Google Drive OAuth token file.
+</ParamField>
+
+---
+
+## Properties
+
+### email
+
+```python
+print(client.email)  # "user@example.com"
+```
+
+<ResponseField name="email" type="str">
+  Email address of the current user.
+</ResponseField>
+
+---
+
+### syftbox_folder
+
+```python
+print(client.syftbox_folder)  # PosixPath('/home/user/SyftBox_user@example.com')
+```
+
+<ResponseField name="syftbox_folder" type="Path">
+  Base directory for SyftBox files and datasets.
+</ResponseField>
+
+---
+
+### peers
+
+Get list of connected peers. Automatically syncs before returning if `PRE_SYNC=true` (default).
+
+```python
+# Auto-sync enabled (default)
+for peer in client.peers:
+    print(f"{peer.email}: {peer.state}")
+
+# Disable auto-sync
+import os
+os.environ["PRE_SYNC"] = "false"
+peers = client.peers
+```
+
+<ResponseField name="peers" type="PeerList">
+  **For Data Owners:** List of approved peers + pending requests (approved first)
+  
+  **For Data Scientists:** List of connected Data Owners (all marked as ACCEPTED)
+</ResponseField>
+
+**Auto-sync behavior:**
+- Default: `PRE_SYNC=true` - syncs before returning
+- Disable: Set `PRE_SYNC=false` environment variable
+
+---
+
+### jobs
+
+Get list of jobs. Automatically syncs before returning if `PRE_SYNC=true` (default).
+
+```python
+# Review jobs (auto-syncs by default)
+for job in client.jobs:
+    print(f"{job.name}: {job.status}")
+```
+
+<ResponseField name="jobs" type="JobsList">
+  List of job objects with status, submitter, and execution details.
+</ResponseField>
+
+---
+
+### datasets
+
+Get dataset manager. Automatically syncs before returning if `PRE_SYNC=true` (default).
+
+```python
+# Access datasets (auto-syncs by default)
+for dataset in client.datasets.get_all():
+    print(f"{dataset.name} by {dataset.owner}")
+```
+
+<ResponseField name="datasets" type="SyftDatasetManager">
+  Dataset manager for querying and accessing datasets.
+</ResponseField>
+
+---
+
+### is_do
+
+```python
+if client.is_do:
+    print("This is a Data Owner client")
+```
+
+<ResponseField name="is_do" type="bool">
+  True if this is a Data Owner instance, False if Data Scientist.
+</ResponseField>
+
+---
+
+## Sync Methods
+
+### sync()
+
+Sync local state with Google Drive.
+
+```python
+# Basic sync
+client.sync()
+
+# Sync with custom checkpoint settings
+client.sync(auto_checkpoint=True, checkpoint_threshold=100)
+```
+
+<ParamField path="auto_checkpoint" type="bool" default="True">
+  Automatically create checkpoint when event count exceeds threshold (DO only).
+</ParamField>
+
+<ParamField path="checkpoint_threshold" type="int" default="50">
+  Create checkpoint when events since last checkpoint >= this value.
+</ParamField>
+
+**Behavior:**
+
+**For Data Owners:**
+1. Loads peer list
+2. Filters to version-compatible peers (warns about incompatible)
+3. Syncs with compatible peers
+4. Optionally creates checkpoint if threshold exceeded
+
+**For Data Scientists:**
+1. Loads peer list
+2. Warns if all connected peers are incompatible
+3. Syncs down from connected peers
+
+---
+
+### load_peers()
+
+Load peer list from connection router.
+
+```python
+client.load_peers()
+```
+
+Refreshes the peer list from Google Drive. Called automatically by `sync()` and when accessing the `peers` property.
+
+---
+
+## Peer Management
+
+### add_peer()
+
+Add a peer connection request.
+
+```python
+# Add a peer
+client.add_peer("dataowner@example.com")
+
+# Force re-add even if already exists
+client.add_peer("dataowner@example.com", force=True, verbose=False)
+```
+
+<ParamField path="peer_email" type="str" required>
+  Email address of the peer to add.
+</ParamField>
+
+<ParamField path="force" type="bool" default="False">
+  Re-add peer even if already exists.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="True">
+  Print status messages.
+</ParamField>
+
+---
+
+### approve_peer_request()
+
+Approve a pending peer request. **Data Owner only.**
+
+```python
+# Approve by email
+client.approve_peer_request("scientist@example.com")
+
+# Approve by peer object
+peer = client.peers[0]
+client.approve_peer_request(peer, verbose=False)
+
+# Skip existence check (for testing)
+client.approve_peer_request(
+    "scientist@example.com",
+    peer_must_exist=False
+)
+```
+
+<ParamField path="email_or_peer" type="str | Peer" required>
+  Email address or Peer object to approve.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="True">
+  Print approval status.
+</ParamField>
+
+<ParamField path="peer_must_exist" type="bool" default="True">
+  Require peer request to exist before approving.
+</ParamField>
+
+**Side effects:**
+- Sets up DS job folder for the approved peer
+- Shares all "any"-permission datasets with the peer
+
+---
+
+### reject_peer_request()
+
+Reject a pending peer request. **Data Owner only.**
+
+```python
+client.reject_peer_request("unwanted@example.com")
+```
+
+<ParamField path="email_or_peer" type="str | Peer" required>
+  Email address or Peer object to reject.
+</ParamField>
+
+---
+
+## Dataset Management
+
+### create_dataset()
+
+Create and optionally share a dataset. **Data Owner only.**
+
+```python
+# Create dataset shared with specific users
+dataset = client.create_dataset(
+    name="medical_data",
+    mock_path="mock_data.csv",
+    private_path="private_data.csv",
+    users=["scientist1@example.com", "scientist2@example.com"]
+)
+
+# Create dataset shared with anyone
+dataset = client.create_dataset(
+    name="public_data",
+    mock_path="mock.csv",
+    users="any"
+)
+
+# Create with private data uploaded
+dataset = client.create_dataset(
+    name="sensitive_data",
+    mock_path="mock.csv",
+    private_path="private.csv",
+    users="any",
+    upload_private=True
+)
+```
+
+<ParamField path="name" type="str" required>
+  Dataset name.
+</ParamField>
+
+<ParamField path="mock_path" type="str | Path" required>
+  Path to mock/sample data file.
+</ParamField>
+
+<ParamField path="private_path" type="str | Path">
+  Path to private data file (optional).
+</ParamField>
+
+<ParamField path="users" type="list[str] | str | None" default="None">
+  List of user emails to share with, or "any" for public sharing.
+</ParamField>
+
+<ParamField path="upload_private" type="bool" default="False">
+  Upload private data to owner-only collection.
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Sync after dataset creation.
+</ParamField>
+
+<ResponseField name="return" type="Dataset">
+  Created dataset object.
+</ResponseField>
+
+---
+
+### share_dataset()
+
+Share an existing dataset with additional users. **Data Owner only.**
+
+```python
+# Share with specific users
+client.share_dataset("medical_data", ["newuser@example.com"])
+
+# Share with anyone
+client.share_dataset("public_data", "any")
+```
+
+<ParamField path="tag" type="str" required>
+  Dataset name.
+</ParamField>
+
+<ParamField path="users" type="list[str] | str" required>
+  List of email addresses or "any".
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Sync after sharing.
+</ParamField>
+
+---
+
+### delete_dataset()
+
+Delete a dataset. **Data Owner only.**
+
+```python
+client.delete_dataset(name="old_data", sync=True)
+```
+
+<ParamField path="name" type="str" required>
+  Dataset name to delete.
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Sync after deletion.
+</ParamField>
+
+---
+
+## Job Management
+
+### submit_python_job()
+
+Submit a Python job to a Data Owner. **Data Scientist only.**
+
+```python
+client.submit_python_job(
+    user="owner@example.com",
+    script="analysis.py",
+    description="Analyze medical data"
+)
+
+# Force submission even if version incompatible
+client.submit_python_job(
+    user="owner@example.com",
+    script="analysis.py",
+    force_submission=True
+)
+```
+
+<ParamField path="user" type="str" required>
+  Data Owner email to submit job to.
+</ParamField>
+
+<ParamField path="script" type="str | Path" required>
+  Path to Python script file.
+</ParamField>
+
+<ParamField path="description" type="str">
+  Job description.
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Sync after submission.
+</ParamField>
+
+<ParamField path="force_submission" type="bool" default="False">
+  Skip version compatibility check.
+</ParamField>
+
+---
+
+### submit_bash_job()
+
+Submit a Bash job to a Data Owner. **Data Scientist only.**
+
+```python
+client.submit_bash_job(
+    user="owner@example.com",
+    script="process.sh",
+    description="Process data files"
+)
+```
+
+<ParamField path="user" type="str" required>
+  Data Owner email to submit job to.
+</ParamField>
+
+<ParamField path="script" type="str | Path" required>
+  Path to Bash script file.
+</ParamField>
+
+<ParamField path="description" type="str">
+  Job description.
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Sync after submission.
+</ParamField>
+
+<ParamField path="force_submission" type="bool" default="False">
+  Skip version compatibility check.
+</ParamField>
+
+---
+
+### process_approved_jobs()
+
+Execute all approved jobs. **Data Owner only.**
+
+```python
+# Process with default settings
+client.process_approved_jobs()
+
+# Custom settings
+client.process_approved_jobs(
+    stream_output=True,
+    timeout=600,
+    force_execution=False,
+    share_outputs_with_submitter=True,
+    share_logs_with_submitter=True
+)
+```
+
+<ParamField path="stream_output" type="bool" default="True">
+  Stream job output in real-time (False = capture at end).
+</ParamField>
+
+<ParamField path="timeout" type="int | None" default="None">
+  Timeout in seconds per job (default: 300, or SYFT_DEFAULT_JOB_TIMEOUT_SECONDS env var).
+</ParamField>
+
+<ParamField path="force_execution" type="bool" default="False">
+  Process all jobs regardless of version compatibility.
+</ParamField>
+
+<ParamField path="share_outputs_with_submitter" type="bool" default="False">
+  Grant submitter read access to job outputs.
+</ParamField>
+
+<ParamField path="share_logs_with_submitter" type="bool" default="False">
+  Grant submitter read access to job logs.
+</ParamField>
+
+**Behavior:**
+- Automatically syncs after processing if `PRE_SYNC=true` (default)
+- Skips jobs from version-incompatible peers unless `force_execution=True`
+- Prints warnings for skipped jobs
+
+---
+
+## Checkpoint Management
+
+### create_checkpoint()
+
+Create a checkpoint of current state. **Data Owner only.**
+
+```python
+checkpoint = client.create_checkpoint()
+print(f"Created checkpoint with {len(checkpoint.file_hashes)} files")
+```
+
+<ResponseField name="return" type="Checkpoint">
+  Checkpoint object containing snapshot of all files and hashes.
+</ResponseField>
+
+**Purpose:** Checkpoints allow new peers to sync quickly by downloading a snapshot instead of replaying all historical events.
+
+---
+
+### should_create_checkpoint()
+
+Check if checkpoint should be created based on event count.
+
+```python
+if client.should_create_checkpoint(threshold=100):
+    client.create_checkpoint()
+```
+
+<ParamField path="threshold" type="int" default="50">
+  Create checkpoint if events since last checkpoint >= this value.
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if checkpoint should be created, False otherwise.
+</ResponseField>
+
+---
+
+### try_create_checkpoint()
+
+Automatically create checkpoint if threshold exceeded.
+
+```python
+# Create checkpoint if >= 100 events since last one
+checkpoint = client.try_create_checkpoint(threshold=100)
+if checkpoint:
+    print("Checkpoint created")
+```
+
+<ParamField path="threshold" type="int" default="50">
+  Event count threshold.
+</ParamField>
+
+<ResponseField name="return" type="Checkpoint | None">
+  Created checkpoint if threshold exceeded, None otherwise.
+</ResponseField>
+
+---
+
+## Cleanup Methods
+
+### delete_syftbox()
+
+Delete all SyftBox state: Google Drive files, local caches, and folders.
+
+```python
+# Full cleanup with event broadcasting
+client.delete_syftbox(verbose=True)
+
+# Quick cleanup without broadcasting (testing)
+client.delete_syftbox(broadcast_delete_events=False)
+```
+
+<ParamField path="verbose" type="bool" default="True">
+  Print deletion progress.
+</ParamField>
+
+<ParamField path="broadcast_delete_events" type="bool" default="True">
+  Broadcast is_deleted events to peers before deleting (DO only).
+</ParamField>
+
+**Cleanup process:**
+1. Gathers all files from folder hierarchy
+2. Finds orphaned files by name pattern
+3. Deletes all files from Google Drive
+4. Broadcasts delete events to peers (if DO)
+5. Clears in-memory and filesystem caches
+6. Deletes local SyftBox folder and cache directories
+
+<Warning>
+This operation is irreversible. All datasets, jobs, and sync history will be permanently deleted.
+</Warning>
+
+---
+
+## See Also
+
+- [Login Functions](/api/client/login) - Creating SyftboxManager instances
+- [Sync Operations](/api/client/sync) - Understanding sync mechanics

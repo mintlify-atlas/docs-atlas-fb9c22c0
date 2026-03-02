@@ -1,0 +1,246 @@
+---
+title: Login Functions
+description: Authenticate and create SyftboxManager instances for Colab and Jupyter environments
+---
+
+## Overview
+
+The login functions provide the primary interface for authenticating users and creating `SyftboxManager` instances in different environments. All functions support both Data Owner (DO) and Data Scientist (DS) modes.
+
+## login()
+
+Wrapper function that delegates to `login_ds()` for backwards compatibility.
+
+```python
+import syft_client as sc
+
+client = sc.login(
+    email="user@example.com",
+    sync=True,
+    load_peers=True
+)
+```
+
+<ParamField path="email" type="str | None" default="None">
+  User email address. For Colab environments, automatically retrieved if not provided.
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Whether to sync with Google Drive after login.
+</ParamField>
+
+<ParamField path="load_peers" type="bool" default="True">
+  Whether to load peer list after login.
+</ParamField>
+
+<ParamField path="token_path" type="str | Path | None" default="None">
+  Path to Google Drive token file. Required for Jupyter environments.
+</ParamField>
+
+<ResponseField name="return" type="SyftboxManager">
+  Configured SyftboxManager instance for interacting with the Syftbox ecosystem.
+</ResponseField>
+
+---
+
+## login_ds()
+
+Login as a Data Scientist to access shared datasets and submit jobs.
+
+```python
+import syft_client as sc
+
+# Colab environment
+client = sc.login_ds(email="scientist@example.com")
+
+# Jupyter environment
+client = sc.login_ds(
+    email="scientist@example.com",
+    token_path="/path/to/token.json"
+)
+```
+
+### Parameters
+
+<ParamField path="email" type="str | None" default="None">
+  User email address. Required for Jupyter, auto-detected in Colab.
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Whether to perform initial sync with Google Drive after login.
+</ParamField>
+
+<ParamField path="load_peers" type="bool" default="True">
+  Whether to load the peer list after login.
+</ParamField>
+
+<ParamField path="token_path" type="str | Path | None" default="None">
+  Path to Google Drive OAuth token file. Required for Jupyter environments. Can also be set via `settings.token_path` configuration.
+</ParamField>
+
+### Returns
+
+<ResponseField name="return" type="SyftboxManager">
+  Configured SyftboxManager instance in Data Scientist mode with:
+  - Access to shared datasets via `client.datasets`
+  - Ability to submit jobs via `client.submit_bash_job()` and `client.submit_python_job()`
+  - Peer management via `client.peers`
+</ResponseField>
+
+### Behavior
+
+**Environment Detection:**
+- Automatically detects Colab or Jupyter environment
+- In Colab: Uses `/content/SyftBox_{email}` as default folder
+- In Jupyter: Uses `~/SyftBox_{email}` as default folder
+
+**Initialization:**
+1. Creates `SyftboxManager` with `only_ds=True` flag
+2. Optionally syncs to download latest files
+3. Optionally loads peer connections
+4. Prints connection status
+
+### Raises
+
+- `ValueError`: If email is required but not provided
+- `NotImplementedError`: If Jupyter login attempted without token_path
+- `ValueError`: If environment is not supported (not Colab or Jupyter)
+
+### Example
+
+```python
+import syft_client as sc
+
+# Login as Data Scientist
+client = sc.login_ds(email="scientist@example.com")
+
+# Access shared datasets
+for dataset in client.datasets.get_all():
+    print(f"Dataset: {dataset.name} from {dataset.owner}")
+
+# Submit a job to a Data Owner
+client.submit_python_job(
+    user="owner@example.com",
+    script="analysis.py",
+    description="Run analysis on private data"
+)
+```
+
+---
+
+## login_do()
+
+Login as a Data Owner to manage datasets, approve jobs, and control access.
+
+```python
+import syft_client as sc
+
+# Colab environment
+client = sc.login_do(email="owner@example.com")
+
+# Jupyter environment  
+client = sc.login_do(
+    email="owner@example.com",
+    token_path="/path/to/token.json"
+)
+```
+
+### Parameters
+
+<ParamField path="email" type="str | None" default="None">
+  User email address. Required for Jupyter, auto-detected in Colab.
+</ParamField>
+
+<ParamField path="sync" type="bool" default="True">
+  Whether to perform initial sync with Google Drive after login.
+</ParamField>
+
+<ParamField path="load_peers" type="bool" default="True">
+  Whether to load peer list and requests after login.
+</ParamField>
+
+<ParamField path="token_path" type="str | Path | None" default="None">
+  Path to Google Drive OAuth token file. Required for Jupyter environments.
+</ParamField>
+
+### Returns
+
+<ResponseField name="return" type="SyftboxManager">
+  Configured SyftboxManager instance in Data Owner mode with:
+  - Dataset creation and management via `client.create_dataset()`, `client.delete_dataset()`
+  - Job approval and execution via `client.process_approved_jobs()`
+  - Peer request management via `client.approve_peer_request()`, `client.reject_peer_request()`
+  - Checkpoint creation for efficient syncing via `client.create_checkpoint()`
+</ResponseField>
+
+### Behavior
+
+**Environment Detection:**
+- Automatically detects Colab or Jupyter environment
+- In Colab: Uses `/content/SyftBox_{email}` as default folder
+- In Jupyter: Uses `~/SyftBox_{email}` as default folder
+
+**Initialization:**
+1. Creates `SyftboxManager` with `only_datasite_owner=True` flag
+2. Optionally syncs to process pending requests and events
+3. Optionally loads peer list including pending requests
+4. Prints connection status
+
+### Raises
+
+- `ValueError`: If email is required but not provided
+- `NotImplementedError`: If Jupyter login attempted without token_path
+- `ValueError`: If environment is not supported (not Colab or Jupyter)
+
+### Example
+
+```python
+import syft_client as sc
+
+# Login as Data Owner
+client = sc.login_do(email="owner@example.com")
+
+# Create and share a dataset
+dataset = client.create_dataset(
+    name="medical_data",
+    mock_path="mock_data.csv",
+    private_path="private_data.csv",
+    users="any"
+)
+
+# Review and approve peer requests
+for peer in client.peers:
+    if peer.state == "pending":
+        print(f"Peer request from: {peer.email}")
+        client.approve_peer_request(peer.email)
+
+# Process approved jobs
+client.process_approved_jobs(stream_output=True)
+```
+
+---
+
+## Environment Configuration
+
+### Colab
+
+- Email auto-detected from Google account
+- SyftBox folder: `/content/SyftBox_{email}`
+- OAuth tokens managed automatically
+- No token_path required
+
+### Jupyter
+
+- Email must be provided
+- SyftBox folder: `~/SyftBox_{email}`
+- Requires token_path to OAuth credentials
+- Token can be set via:
+  - Function parameter: `token_path="/path/to/token.json"`
+  - Config setting: `settings.token_path = "/path/to/token.json"`
+
+---
+
+## See Also
+
+- [SyftboxManager](/api/client/syftbox-manager) - Core client class returned by login functions
+- [Sync Operations](/api/client/sync) - Understanding sync behavior and connection management

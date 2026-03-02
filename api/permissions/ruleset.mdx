@@ -1,0 +1,365 @@
+---
+title: RuleSet & Rule
+description: Define hierarchical permission rules for datasites
+---
+
+## Overview
+
+`RuleSet` and `Rule` classes define permission policies for directories in a datasite. Each directory can have a `syft.pub.yaml` file containing a ruleset that specifies which users can access files within that directory and its subdirectories.
+
+## RuleSet
+
+A collection of permission rules for a specific directory.
+
+```python
+from syft_permissions import RuleSet
+```
+
+### Fields
+
+<ParamField path="rules" type="list[Rule]" default="[]">
+  List of permission rules. Rules are automatically sorted by specificity when added to a service, with more specific patterns checked first.
+</ParamField>
+
+<ParamField path="terminal" type="bool" default="False">
+  If `True`, prevents the permission tree from traversing to parent directories when looking for rules. This enforces stricter isolation for subdirectories.
+</ParamField>
+
+<ParamField path="path" type="str" default="">
+  The directory path this ruleset applies to (relative to the datasite root). This field is excluded from serialization and is set automatically when loading from the filesystem.
+</ParamField>
+
+### Methods
+
+#### load
+
+Loads a ruleset from a YAML file.
+
+```python
+@classmethod
+def load(cls, filepath: Path) -> RuleSet
+```
+
+<ParamField path="filepath" type="Path" required>
+  Path to the `syft.pub.yaml` file to load.
+</ParamField>
+
+<ResponseField name="return" type="RuleSet">
+  The loaded ruleset with `path` set to the file's parent directory.
+</ResponseField>
+
+##### Example
+
+```python
+from pathlib import Path
+from syft_permissions import RuleSet
+
+ruleset = RuleSet.load(Path("/data/reports/syft.pub.yaml"))
+print(ruleset.path)  # "/data/reports"
+print(len(ruleset.rules))  # Number of rules in the file
+```
+
+#### save
+
+Saves the ruleset to a YAML file.
+
+```python
+def save(self, filepath: Path | None = None) -> None
+```
+
+<ParamField path="filepath" type="Path | None" default="None">
+  Target file path. If `None`, saves to `{ruleset.path}/syft.pub.yaml`.
+</ParamField>
+
+##### Example
+
+```python
+from pathlib import Path
+from syft_permissions import RuleSet, Rule, Access
+
+ruleset = RuleSet(
+    rules=[
+        Rule(pattern="**", access=Access(read=["*"]))
+    ],
+    path="/data/public"
+)
+
+# Save to default location: /data/public/syft.pub.yaml
+ruleset.save()
+
+# Or save to a specific path
+ruleset.save(Path("/tmp/permissions.yaml"))
+```
+
+### Example
+
+```python
+from syft_permissions import RuleSet, Rule, Access
+
+# Create a ruleset for a reports directory
+ruleset = RuleSet(
+    path="reports",
+    terminal=False,
+    rules=[
+        # Most specific rules first (automatic when added to service)
+        Rule(
+            pattern="confidential/**",
+            access=Access(read=["alice@company.com", "bob@company.com"])
+        ),
+        Rule(
+            pattern="**/*.csv",
+            access=Access(read=["*@company.com"], write=["data-team@company.com"])
+        ),
+        Rule(
+            pattern="**",
+            access=Access(read=["*"])
+        )
+    ]
+)
+```
+
+## Rule
+
+Defines a single permission rule with a pattern and access control list.
+
+```python
+from syft_permissions import Rule
+```
+
+### Fields
+
+<ParamField path="pattern" type="str" required>
+  A glob pattern that matches file paths. Supports wildcards and user templates:
+  
+  - `*` - Matches files in the current directory only
+  - `**` - Matches all files recursively
+  - `*.csv` - Matches CSV files in the current directory
+  - `**/*.csv` - Matches CSV files anywhere
+  - `reports/**` - Matches everything under the reports directory
+  - `{{.UserEmail}}/**` - Matches user-specific directories (template)
+  
+  **Template Support**: The `{{.UserEmail}}` template is replaced with the requesting user's email during evaluation.
+</ParamField>
+
+<ParamField path="access" type="Access" required>
+  Access control list specifying which users have which permissions for files matching this pattern.
+</ParamField>
+
+### Pattern Specificity
+
+When multiple rules match a path, they are evaluated in order of specificity (most specific first):
+
+1. **User templates**: `{{.UserEmail}}/**`
+2. **Exact paths**: `reports/q1.csv`
+3. **Directory wildcards**: `reports/**`
+4. **Extension wildcards**: `*.csv`
+5. **Recursive extension**: `**/*.csv`
+6. **Catch-all**: `**`
+
+This ordering is applied automatically when rules are added to an `ACLService`.
+
+### Validation
+
+Rules are validated when created. The following templates are **not supported** and will raise a `ValueError`:
+
+- `{{.UserHash}}`
+- `{{.Year}}`
+- `{{.Month}}`
+- `{{.Date}}`
+
+### Examples
+
+#### Basic Rule
+
+```python
+from syft_permissions import Rule, Access
+
+# Allow anyone to read CSV files
+rule = Rule(
+    pattern="**/*.csv",
+    access=Access(read=["*"])
+)
+```
+
+#### User Template Rule
+
+```python
+from syft_permissions import Rule, Access
+
+# Users can write to their own directories
+rule = Rule(
+    pattern="{{.UserEmail}}/**",
+    access=Access(write=["USER"])
+)
+
+# When alice@company.com requests access:
+# - Pattern becomes: alice@company.com/**
+# - USER placeholder becomes: alice@company.com
+# - Result: alice can write to alice@company.com/* files
+```
+
+#### Hierarchical Rules
+
+```python
+from syft_permissions import Rule, Access
+
+rules = [
+    # Specific confidential files - restricted access
+    Rule(
+        pattern="confidential/**",
+        access=Access(read=["alice@company.com"])
+    ),
+    # CSV files - company-wide read, team write
+    Rule(
+        pattern="**/*.csv",
+        access=Access(
+            read=["*@company.com"],
+            write=["data-team@company.com"]
+        )
+    ),
+    # Everything else - public read
+    Rule(
+        pattern="**",
+        access=Access(read=["*"])
+    )
+]
+```
+
+## PERMISSION_FILE_NAME
+
+Constant defining the standard filename for permission files.
+
+```python
+from syft_permissions import PERMISSION_FILE_NAME
+
+print(PERMISSION_FILE_NAME)  # "syft.pub.yaml"
+```
+
+### Usage
+
+Every directory that needs custom permissions should contain a file named `syft.pub.yaml`. When `ACLService.load_permissions_from_filesystem()` is called, it recursively searches for all files with this name.
+
+### Example Directory Structure
+
+```
+my-datasite/
+├── syft.pub.yaml           # Root permissions
+├── public/
+│   ├── data.csv
+│   └── readme.txt
+├── reports/
+│   ├── syft.pub.yaml       # Reports-specific permissions
+│   ├── q1.csv
+│   └── q2.csv
+└── users/
+    ├── syft.pub.yaml       # User directory permissions
+    ├── alice@company.com/
+    │   └── notes.txt
+    └── bob@company.com/
+        └── draft.txt
+```
+
+### Permission File Protection
+
+Accessing a `syft.pub.yaml` file itself **always requires ADMIN access**, even if a rule grants lower-level permissions to the directory. This prevents unauthorized users from reading the permission configuration.
+
+```python
+from syft_permissions import ACLService, ACLRequest, AccessLevel, User
+
+service = ACLService(owner="admin@example.com")
+# ... load permissions ...
+
+# Even if a user has READ access to reports/**, 
+# they cannot read reports/syft.pub.yaml without ADMIN
+request = ACLRequest(
+    path="reports/syft.pub.yaml",
+    level=AccessLevel.READ,  # Automatically elevated to ADMIN
+    user=User(id="alice@company.com")
+)
+
+service.can_access(request)  # False (unless alice is admin)
+```
+
+## Complete Example
+
+### YAML Configuration
+
+```yaml
+# reports/syft.pub.yaml
+rules:
+  - pattern: "confidential/**"
+    access:
+      read:
+        - "alice@company.com"
+        - "bob@company.com"
+      admin:
+        - "alice@company.com"
+
+  - pattern: "{{.UserEmail}}/**"
+    access:
+      write:
+        - "USER"
+
+  - pattern: "**/*.csv"
+    access:
+      read:
+        - "*@company.com"
+      write:
+        - "data-team@company.com"
+
+  - pattern: "**"
+    access:
+      read:
+        - "*"
+
+terminal: false
+```
+
+### Python Usage
+
+```python
+from pathlib import Path
+from syft_permissions import RuleSet, Rule, Access
+
+# Load from YAML
+ruleset = RuleSet.load(Path("reports/syft.pub.yaml"))
+
+# Or create programmatically
+ruleset = RuleSet(
+    path="reports",
+    terminal=False,
+    rules=[
+        Rule(
+            pattern="confidential/**",
+            access=Access(
+                read=["alice@company.com", "bob@company.com"],
+                admin=["alice@company.com"]
+            )
+        ),
+        Rule(
+            pattern="{{.UserEmail}}/**",
+            access=Access(write=["USER"])
+        ),
+        Rule(
+            pattern="**/*.csv",
+            access=Access(
+                read=["*@company.com"],
+                write=["data-team@company.com"]
+            )
+        ),
+        Rule(
+            pattern="**",
+            access=Access(read=["*"])
+        )
+    ]
+)
+
+# Save to file
+ruleset.save()
+```
+
+## See Also
+
+- [ACLService](/api/permissions/acl-service) - Manage and enforce permissions
+- [Access](/api/permissions/access-control#access) - Configure access control lists
+- [AccessLevel](/api/permissions/access-control#accesslevel) - Understand access levels

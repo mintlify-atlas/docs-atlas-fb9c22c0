@@ -1,0 +1,382 @@
+---
+title: Dataset
+description: Core dataset class and related types
+---
+
+## Overview
+
+The `Dataset` class represents a dataset in SyftBox with both mock (public) and private data components. It provides methods for accessing data files, metadata, and README documentation.
+
+## Dataset Class
+
+### Properties
+
+<ResponseField name="uid" type="UUID">
+  Unique identifier for the dataset (auto-generated)
+</ResponseField>
+
+<ResponseField name="created_at" type="datetime">
+  Timestamp when the dataset was created (UTC)
+</ResponseField>
+
+<ResponseField name="updated_at" type="datetime">
+  Timestamp when the dataset was last updated (UTC)
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Unique name of the dataset
+</ResponseField>
+
+<ResponseField name="summary" type="str | None">
+  Short description of the dataset
+</ResponseField>
+
+<ResponseField name="tags" type="list[str]">
+  Tags for categorizing the dataset
+</ResponseField>
+
+<ResponseField name="location" type="str | None">
+  Location identifier for remote datasets requiring manual syncing
+</ResponseField>
+
+<ResponseField name="mock_url" type="SyftBoxURL">
+  URL to the mock (public) dataset location
+</ResponseField>
+
+<ResponseField name="private_url" type="SyftBoxURL">
+  URL to the private dataset location
+</ResponseField>
+
+<ResponseField name="readme_url" type="SyftBoxURL | None">
+  URL to the README file if provided
+</ResponseField>
+
+<ResponseField name="mock_files_urls" type="list[SyftBoxURL]">
+  URLs to uploaded mock data files (excludes metadata files)
+</ResponseField>
+
+<ResponseField name="private_files_paths" type="list[Path]">
+  Local paths to private data files (excludes metadata files)
+</ResponseField>
+
+### Computed Properties
+
+<ResponseField name="owner" type="str">
+  Email address of the dataset owner (extracted from mock_url)
+</ResponseField>
+
+<ResponseField name="mock_dir" type="Path">
+  Local filesystem path to the mock data directory
+</ResponseField>
+
+<ResponseField name="private_dir" type="Path">
+  Local filesystem path to the private data directory
+</ResponseField>
+
+<ResponseField name="readme_path" type="Path | None">
+  Local filesystem path to the README file
+</ResponseField>
+
+<ResponseField name="mock_files" type="list[Path]">
+  Absolute paths to all mock files (excludes dataset.yaml and README)
+</ResponseField>
+
+<ResponseField name="private_files" type="list[Path]">
+  Absolute paths to all private files (excludes private_metadata.yaml)
+</ResponseField>
+
+<ResponseField name="files" type="list[Path]">
+  Combined list of all mock and private file paths
+</ResponseField>
+
+<ResponseField name="private_config" type="PrivateDatasetConfig">
+  Private dataset configuration (cached property)
+</ResponseField>
+
+<ResponseField name="private_config_path" type="Path">
+  Path to the private metadata YAML file
+</ResponseField>
+
+### Methods
+
+#### get_readme
+
+Retrieve the content of the README file.
+
+```python
+readme_content = dataset.get_readme()
+if readme_content:
+    print(readme_content)
+```
+
+<ResponseField name="return" type="str | None">
+  The README content as a string, or None if no README exists
+</ResponseField>
+
+#### describe
+
+Display a formatted description of the dataset (Jupyter/IPython only).
+
+```python
+dataset.describe()
+```
+
+Shows an HTML-formatted view with:
+- Dataset name and metadata
+- Creation date
+- Summary and tags
+- Paths to mock and private data
+- Link to README if available
+
+#### save
+
+Save dataset metadata to a YAML file.
+
+```python
+dataset.save(filepath="/path/to/dataset.yaml")
+```
+
+<ParamField path="filepath" type="PathLike" required>
+  Path where the YAML file should be saved. Must have .yaml extension.
+</ParamField>
+
+**Raises:**
+- `ValueError`: If filepath doesn't have .yaml extension
+
+#### load
+
+Load a dataset from a YAML metadata file.
+
+```python
+dataset = Dataset.load(
+    filepath="/path/to/dataset.yaml",
+    syftbox_config=config
+)
+```
+
+<ParamField path="filepath" type="PathLike" required>
+  Path to the dataset YAML metadata file
+</ParamField>
+
+<ParamField path="syftbox_config" type="SyftBoxConfig | None">
+  SyftBox configuration for resolving paths
+</ParamField>
+
+<ResponseField name="return" type="Dataset">
+  Loaded Dataset instance
+</ResponseField>
+
+**Raises:**
+- `FileNotFoundError`: If metadata file doesn't exist
+
+## Usage Examples
+
+### Accessing Dataset Files
+
+```python
+# Get all mock (public) data files
+for file_path in dataset.mock_files:
+    print(f"Mock file: {file_path}")
+
+# Get all private data files
+for file_path in dataset.private_files:
+    print(f"Private file: {file_path}")
+
+# Get all files
+for file_path in dataset.files:
+    print(f"File: {file_path}")
+```
+
+### Reading Dataset Content
+
+```python
+# Read README
+readme = dataset.get_readme()
+if readme:
+    print(readme)
+
+# Access mock data directory
+mock_dir = dataset.mock_dir
+print(f"Mock data at: {mock_dir}")
+
+# Access private data directory
+private_dir = dataset.private_dir
+print(f"Private data at: {private_dir}")
+```
+
+### Dataset Metadata
+
+```python
+print(f"Dataset: {dataset.name}")
+print(f"Owner: {dataset.owner}")
+print(f"Created: {dataset.created_at}")
+print(f"Summary: {dataset.summary}")
+print(f"Tags: {', '.join(dataset.tags)}")
+print(f"UID: {dataset.uid}")
+```
+
+### Jupyter/IPython Display
+
+```python
+# In a Jupyter notebook
+dataset.describe()  # Shows rich HTML display
+
+# Or just display the dataset directly
+dataset  # Triggers _repr_html_()
+```
+
+## PrivateDatasetConfig Class
+
+Stores private dataset metadata outside the sync folder.
+
+### Properties
+
+<ResponseField name="uid" type="UUID">
+  Dataset unique identifier (matches parent dataset)
+</ResponseField>
+
+<ResponseField name="data_dir" type="Path">
+  Path to the private data directory
+</ResponseField>
+
+### Methods
+
+#### save
+
+Save private configuration to a YAML file.
+
+```python
+private_config.save(filepath="/path/to/private_metadata.yaml")
+```
+
+#### load
+
+Load private configuration from a YAML file.
+
+```python
+private_config = PrivateDatasetConfig.load(
+    filepath="/path/to/private_metadata.yaml",
+    syftbox_config=config
+)
+```
+
+## SyftBoxURL Type
+
+Custom URL type for addressing resources in SyftBox.
+
+### Format
+
+Supports two URL formats:
+
+1. **Email-based** (for public data):
+   ```
+   syft://user@domain.com/path/to/resource
+   ```
+
+2. **Simple path** (for private/local data):
+   ```
+   syft://private/path/to/resource
+   ```
+
+### Properties
+
+<ResponseField name="protocol" type="str">
+  The protocol (always "syft://")
+</ResponseField>
+
+<ResponseField name="host" type="str">
+  The host/email component
+</ResponseField>
+
+<ResponseField name="path" type="str">
+  The path component
+</ResponseField>
+
+<ResponseField name="query" type="dict[str, str]">
+  Query parameters as a dictionary
+</ResponseField>
+
+### Methods
+
+#### to_local_path
+
+Convert the URL to a local filesystem path.
+
+```python
+url = SyftBoxURL("syft://user@example.com/public/data")
+local_path = url.to_local_path(syftbox_folder="/path/to/syftbox")
+# Returns: /path/to/syftbox/user@example.com/public/data
+```
+
+<ParamField path="syftbox_folder" type="PathLike" required>
+  Base SyftBox directory
+</ParamField>
+
+<ResponseField name="return" type="Path">
+  Resolved local filesystem path
+</ResponseField>
+
+#### from_path
+
+Create a SyftBoxURL from a local filesystem path.
+
+```python
+url = SyftBoxURL.from_path(
+    path="/path/to/syftbox/user@example.com/public/data",
+    syftbox_folder="/path/to/syftbox"
+)
+# Returns: syft://user@example.com/public/data
+```
+
+<ParamField path="path" type="PathLike" required>
+  Local filesystem path
+</ParamField>
+
+<ParamField path="syftbox_folder" type="PathLike" required>
+  Base SyftBox directory
+</ParamField>
+
+<ResponseField name="return" type="SyftBoxURL">
+  SyftBoxURL instance
+</ResponseField>
+
+#### is_valid
+
+Validate a URL string.
+
+```python
+if SyftBoxURL.is_valid("syft://user@example.com/data"):
+    url = SyftBoxURL("syft://user@example.com/data")
+```
+
+<ParamField path="url" type="str" required>
+  URL string to validate
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if valid, False otherwise
+</ResponseField>
+
+## PathLike Type
+
+Type alias for path-like objects.
+
+```python
+PathLike = Union[str, Path, os.PathLike]
+```
+
+Accepts:
+- String paths: `"/path/to/file"`
+- `pathlib.Path` objects
+- Any object implementing `os.PathLike`
+
+### Helper Function: to_path
+
+Convert PathLike to a resolved Path object.
+
+```python
+from syft_datasets.types import to_path
+
+path = to_path("~/data/file.csv")
+# Returns: Path with expanded home directory and resolved symlinks
+```
